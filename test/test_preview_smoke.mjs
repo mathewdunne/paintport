@@ -360,6 +360,38 @@ const smoke = `
     R.nameEscaped = !document.getElementById("xssprobe") && document.getElementById("analyse").textContent.includes("xssprobe");
     MODEL.objects[0].name = nameBak; renderAnalyse();
 
+    // --- 17) Slot-Persistenz + ▲▼-Umsortierung: Zuordnungen (auch gepinnte Mixe)
+    //         folgen der verschobenen Farbe, localStorage hält 16 × {c, on},
+    //         „Standardfarben" setzt zurück. Prusa-Ziel aus Schritt 13 aktiv (8 Slots).
+    const byId = (id) => document.getElementById(id);
+    const selFil = (n) => document.querySelector('#mapTable select[data-fil="' + n + '"]');
+    applyPreset(PRESETS.findIndex((p) => p.id === "CMY"));
+    selFil(2).value = "p3"; // Grün → Slot 3 (Gelb)
+    const mixOpt = [...selFil(1).options].find((o) => /^mix:/.test(o.value) && /(:|\\+)[23]x/.test(o.value));
+    if (!mixOpt) throw new Error("Schritt 17: kein Mix-Kandidat mit Slot 2/3");
+    selFil(1).value = mixOpt.value;
+    updateResults();
+    moveSlot(3, -1);
+    R.moveColorsOk = byId("slotHex2").value === "#FFFF00" && byId("slotHex3").value === "#FF00FF" &&
+      byId("slotOn2").checked && byId("slotOn3").checked;
+    R.moveMapPhysOk = selFil(2).value === "p2";
+    R.moveMapMixOk = selFil(1).value === swapSlotRef(mixOpt.value, 2, 3);
+    R.moveBtnsOk = byId("slotUp1").disabled && byId("slotDown8").disabled && !byId("slotUp2").disabled;
+    const stored = JSON.parse(localStorage.getItem("paintport_slots") || "null");
+    R.persistSavedOk = Array.isArray(stored) && stored.length === 16 &&
+      stored[1].c === "#FFFF00" && stored[2].c === "#FF00FF" && stored[3].on === false;
+    // Reload simulieren: Gedächtnis + DOM leeren, aus localStorage neu aufbauen
+    for (const k of Object.keys(SLOT_MEMO)) delete SLOT_MEMO[k];
+    byId("slots").innerHTML = "";
+    loadSlots(); renderSlots(); renderMapping();
+    R.persistLoadOk = byId("slotHex2").value === "#FFFF00" && byId("slotOn2").checked && !byId("slotOn4").checked;
+    const confirmBak = window.confirm;
+    window.confirm = () => true;
+    resetSlotColors();
+    window.confirm = confirmBak;
+    R.slotDefaultsOk = byId("slotHex1").value === DEFAULT_SLOTS[0] && byId("slotOn5").checked && !byId("slotOn6").checked &&
+      JSON.parse(localStorage.getItem("paintport_slots"))[0].c === DEFAULT_SLOTS[0];
+
     R.ok = R.mixToggleHadMix === true && R.mixToggleOffOk === true && R.nameEscaped === true &&
            orig.red > 100 && orig.green > 100 && R.mixOptionCount >= 3 &&
            R.pinnedResHasSwatch && R.collisionBadges === 2 &&
@@ -377,7 +409,10 @@ const smoke = `
            R.panchromaBtnOk === true && R.panchromaSlotsOk === true &&
            R.panchromaSuffixOk === true &&
            R.smIdentityOk === true && R.bambuIdentityOk === true &&
-           R.autoMixBase === true && R.autoExactStays === true && R.autoMixOff === true;
+           R.autoMixBase === true && R.autoExactStays === true && R.autoMixOff === true &&
+           R.moveColorsOk === true && R.moveMapPhysOk === true && R.moveMapMixOk === true &&
+           R.moveBtnsOk === true && R.persistSavedOk === true && R.persistLoadOk === true &&
+           R.slotDefaultsOk === true;
   } catch (e) { R.error = String(e && e.stack || e); }
   document.title = "RESULT:" + JSON.stringify(R);
 })();

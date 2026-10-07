@@ -87,6 +87,7 @@ button:hover{filter:brightness(1.06)}
 button:active{transform:scale(.97)}
 button:disabled{opacity:.5;cursor:default;transform:none}
 button.ghost{background:transparent;color:var(--brand);border-color:var(--brand);font-size:13px;padding:8px 16px}
+button.mini{font-size:11px;padding:3px 8px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .hint{color:var(--txd);font-size:12px;margin-top:8px}
 .mixinfo{font-size:12px;color:var(--txd)}
@@ -185,6 +186,7 @@ body.dark .warnbox{background:var(--koralle);color:var(--warmweiss)}
   <div class="row" style="margin-top:8px">
     <span style="font-size:12.5px;color:var(--txd)" data-i18n="slots.presets">Presets:</span>
     <span id="presetBtns" class="row" style="gap:6px"></span>
+    <button class="ghost" onclick="resetSlotColors()" data-i18n="slots.defaults">Standardfarben</button>
     <label style="font-size:12.5px;color:var(--txd)"><input type="checkbox" id="allowMix" checked> <span data-i18n="slots.allowMix">ColorMix-Mischungen (virtuelle Extruder) erlauben</span></label>
   </div>
   <div class="hint" data-i18n="slots.hint">Trage hier ein, welche Spulenfarbe in welchem Drucker-Slot steckt. Nicht bestückte Slots deaktivieren.</div>
@@ -284,7 +286,7 @@ Es wird kein Code dieser Projekte ausgeliefert; Formate wurden zur Interoperabil
     <button class="mclose" onclick="closeModal('termsModal')">✕</button>
     <div class="mlogo" data-i18n="terms.title">Nutzung &amp; Datenschutz</div>
     <h3 data-i18n="terms.hPrivacy">Deine Daten</h3>
-    <p data-i18n="terms.privacy">Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur zwei lokale Einstellungen (Sprache, „Willkommen gesehen") im localStorage deines Browsers.</p>
+    <p data-i18n="terms.privacy">Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur vier lokale Einstellungen (Sprache, Design-Modus, „Willkommen gesehen“, Spulenfarben der Slots) im localStorage deines Browsers.</p>
     <h3 data-i18n="terms.hOpenSource">Open Source</h3>
     <p data-i18n-html="terms.openSource">PaintPort ist freie Software unter der <b>AGPL-3.0</b> — Quellcode auf <a href="https://github.com/perspektive3D/paintport" target="_blank">GitHub</a>. © Nils Stackler / perspektive3D.</p>
     <h3 data-i18n="terms.hWarranty">Keine Gewähr</h3>
@@ -1341,6 +1343,10 @@ const I18N = {
     "slots.presets": "Presets:",
     "slots.allowMix": "ColorMix-Mischungen (virtuelle Extruder) erlauben",
     "slots.hint": "Trage hier ein, welche Spulenfarbe in welchem Drucker-Slot steckt. Nicht bestückte Slots deaktivieren.",
+    "slots.up": "Slot nach oben verschieben",
+    "slots.down": "Slot nach unten verschieben",
+    "slots.defaults": "Standardfarben",
+    "slots.defaultsConfirm": "Alle Slot-Farben auf die Standardwerte zurücksetzen? Deine gespeicherten Spulenfarben gehen verloren.",
     "map.colFilament": "Modell-Filament",
     "map.colShare": "Anteil",
     "map.colTarget": "Ziel",
@@ -1404,7 +1410,7 @@ const I18N = {
     "thanks.subEn": "▶ Subscribe p3d-intl (EN)",
     "terms.title": "Nutzung & Datenschutz",
     "terms.hPrivacy": "Deine Daten",
-    "terms.privacy": "Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur drei lokale Einstellungen (Sprache, Design-Modus, „Willkommen gesehen“) im localStorage deines Browsers.",
+    "terms.privacy": "Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur vier lokale Einstellungen (Sprache, Design-Modus, „Willkommen gesehen“, Spulenfarben der Slots) im localStorage deines Browsers.",
     "terms.hOpenSource": "Open Source",
     "terms.openSource": 'PaintPort ist freie Software unter der <b>AGPL-3.0</b> — Quellcode auf <a href="https://github.com/perspektive3D/paintport" target="_blank">GitHub</a>. © Nils Stackler / perspektive3D.',
     "terms.hWarranty": "Keine Gewähr",
@@ -1419,7 +1425,7 @@ const I18N = {
     "err.ERR_NO_MODEL": "3D/3dmodel.model fehlt — keine gültige 3MF-Datei.",
     "err.ERR_MISSING_REF": "Referenzierte Modelldatei fehlt im Archiv: {detail}",
     "reset.btn": "Zurücksetzen — neues Modell laden",
-    "reset.confirm": "Alles zurücksetzen? Geladenes Modell, Slot-Konfiguration und Zuordnung gehen verloren (Sprache und Design bleiben).",
+    "reset.confirm": "Alles zurücksetzen? Geladenes Modell und Zuordnung gehen verloren (Sprache, Design und Spulenfarben der Slots bleiben).",
     "err.ERR_NO_OBJECTS": "Keine druckbaren Objekte in der Datei gefunden.",
     "err.ERR_UNIT": "Die Datei nutzt eine andere Einheit als Millimeter — das wird nicht unterstützt (die Größe würde sich ändern). Bitte im Slicer in mm neu speichern.",
     "err.ERR_BBS_NO_MIX": "Interner Fehler: ColorMix-Export ohne Zielformat.",
@@ -1445,6 +1451,10 @@ const I18N = {
     "slots.presets": "Presets:",
     "slots.allowMix": "Allow ColorMix blends (virtual extruders)",
     "slots.hint": "Enter which spool color sits in which printer slot. Disable slots that are not loaded.",
+    "slots.up": "Move slot up",
+    "slots.down": "Move slot down",
+    "slots.defaults": "Default colors",
+    "slots.defaultsConfirm": "Reset all slot colors to the defaults? Your saved spool colors will be lost.",
     "map.colFilament": "Model filament",
     "map.colShare": "Share",
     "map.colTarget": "Target",
@@ -1508,7 +1518,7 @@ const I18N = {
     "thanks.subEn": "▶ Subscribe p3d-intl (English)",
     "terms.title": "Terms & Privacy",
     "terms.hPrivacy": "Your data",
-    "terms.privacy": 'Everything happens in your browser: no uploads, no server, no tracking, no cookies. Only three local settings (language, theme, "welcome seen") are stored in your browser localStorage.',
+    "terms.privacy": 'Everything happens in your browser: no uploads, no server, no tracking, no cookies. Only four local settings (language, theme, "welcome seen", slot spool colors) are stored in your browser localStorage.',
     "terms.hOpenSource": "Open source",
     "terms.openSource": 'PaintPort is free software under the <b>AGPL-3.0</b> — source code on <a href="https://github.com/perspektive3D/paintport" target="_blank">GitHub</a>. © Nils Stackler / perspektive3D.',
     "terms.hWarranty": "No warranty",
@@ -1523,7 +1533,7 @@ const I18N = {
     "err.ERR_NO_MODEL": "3D/3dmodel.model missing — not a valid 3MF file.",
     "err.ERR_MISSING_REF": "Referenced model file missing from archive: {detail}",
     "reset.btn": "Reset — load a new model",
-    "reset.confirm": "Reset everything? The loaded model, slot configuration and mapping will be lost (language and theme are kept).",
+    "reset.confirm": "Reset everything? The loaded model and mapping will be lost (language, theme and slot spool colors are kept).",
     "err.ERR_NO_OBJECTS": "No printable objects found in the file.",
     "err.ERR_UNIT": "This file uses a unit other than millimeters, which is not supported (the size would change). Please re-save it in mm from your slicer.",
     "err.ERR_BBS_NO_MIX": "Internal error: ColorMix export without a target mix format.",
@@ -1663,22 +1673,89 @@ function renderAnalyse() {
 const DEFAULT_SLOTS = ["#FFFFFF", "#000000", "#00FFFF", "#FF00FF", "#FFFF00", "#FF0000", "#00FF00", "#0000FF",
   "#FFA500", "#800080", "#808080", "#8B4513", "#F5F5DC", "#40E0D0", "#FFC0CB", "#556B2F"];
 const SLOT_MEMO = {}; // Slot-Zustand überlebt das Verkleinern der Extruderzahl (Zielwechsel)
+const SLOT_KEY = "paintport_slots"; // localStorage: 16 × {c, on} — Spulenfarben überleben den Reload
+// Bestehende Werte sichern — auch für Slots, die gleich aus dem DOM fallen
+function memoSlots() {
+  $("slots").querySelectorAll("input").forEach((el) => { SLOT_MEMO[el.id] = el.type === "checkbox" ? el.checked : el.value; });
+}
+function slotState(s) {
+  return {
+    col: SLOT_MEMO["slotHex" + s] || DEFAULT_SLOTS[s - 1] || "#808080",
+    on: ("slotOn" + s) in SLOT_MEMO ? SLOT_MEMO["slotOn" + s] : s <= 5,
+  };
+}
+function saveSlots() {
+  memoSlots();
+  const arr = [];
+  for (let s = 1; s <= 16; s++) { const st = slotState(s); arr.push({ c: st.col, on: st.on }); }
+  store.set(SLOT_KEY, JSON.stringify(arr));
+}
+// Gespeicherte Slots laden — Farben nur über normalizeHex (landen in style/value-Attributen)
+function loadSlots() {
+  let arr = null;
+  try { arr = JSON.parse(store.get(SLOT_KEY)); } catch (e) { return; }
+  if (!Array.isArray(arr)) return;
+  arr.slice(0, 16).forEach((x, i) => {
+    if (!x) return;
+    if (typeof x.c === "string") SLOT_MEMO["slotHex" + (i + 1)] = SLOT_MEMO["slotCol" + (i + 1)] = PaintPortCore.normalizeHex(x.c);
+    if (typeof x.on === "boolean") SLOT_MEMO["slotOn" + (i + 1)] = x.on;
+  });
+}
+loadSlots();
 function renderSlots() {
   const host = $("slots");
-  // Bestehende Werte bei Re-Render erhalten — auch für Slots, die gleich aus dem DOM fallen
-  host.querySelectorAll("input").forEach((el) => { SLOT_MEMO[el.id] = el.type === "checkbox" ? el.checked : el.value; });
+  memoSlots();
   host.innerHTML = "";
-  for (let s = 1; s <= printerCount(); s++) {
-    const col = SLOT_MEMO["slotHex" + s] || DEFAULT_SLOTS[s - 1] || "#808080";
-    const on = ("slotOn" + s) in SLOT_MEMO ? SLOT_MEMO["slotOn" + s] : s <= 5;
+  const n = printerCount();
+  for (let s = 1; s <= n; s++) {
+    const { col, on } = slotState(s);
     const row = document.createElement("div");
     row.className = "slotrow";
     row.innerHTML = `<span class="nr">Slot ${s}</span>
       <input type="checkbox" id="slotOn${s}" ${on ? "checked" : ""} onchange="renderMapping()">
       <input type="color" id="slotCol${s}" value="${col}" onchange="syncHex(${s});renderMapping()">
-      <input type="text" class="hex" id="slotHex${s}" value="${col}" onchange="syncCol(${s});renderMapping()">`;
+      <input type="text" class="hex" id="slotHex${s}" value="${col}" onchange="syncCol(${s});renderMapping()">
+      <button class="ghost mini" id="slotUp${s}" onclick="moveSlot(${s},-1)" title="${t("slots.up")}" aria-label="${t("slots.up")}" data-i18n-title="slots.up" ${s === 1 ? "disabled" : ""}>▲</button>
+      <button class="ghost mini" id="slotDown${s}" onclick="moveSlot(${s},1)" title="${t("slots.down")}" aria-label="${t("slots.down")}" data-i18n-title="slots.down" ${s === n ? "disabled" : ""}>▼</button>`;
     host.appendChild(row);
   }
+}
+// Inline-onchange (syncCol normalisiert) läuft vor dem Bubbling → gespeichert wird der normalisierte Wert
+$("slots").addEventListener("change", saveSlots);
+// Slot s mit Nachbar s+dir tauschen (Farbe + Zustand); Zuordnungen wandern mit der Farbe
+function moveSlot(s, dir) {
+  const o = s + dir;
+  if (o < 1 || o > printerCount()) return;
+  const a = $("slotOn" + s), b = $("slotOn" + o);
+  [a.checked, b.checked] = [b.checked, a.checked];
+  for (const p of ["slotHex", "slotCol"]) {
+    const x = $(p + s), y = $(p + o);
+    [x.value, y.value] = [y.value, x.value];
+  }
+  const btn = $((dir < 0 ? "slotUp" : "slotDown") + o);
+  if (btn && !btn.disabled) btn.focus();
+  saveSlots();
+  renderMapping([s, o]);
+}
+// Mapping-Wert nach Slot-Tausch a↔b umschreiben ("p3" → "p2"); Mix-Komponenten
+// aufsteigend nach Slot sortiert wie in topMixes, "mix" (Auto) bleibt unverändert
+function swapSlotRef(v, a, b) {
+  const sw = (n) => (n === a ? b : n === b ? a : n);
+  if (v.startsWith("p")) return "p" + sw(+v.slice(1));
+  if (v.startsWith("mix:")) {
+    return "mix:" + v.slice(4).split("+").map((part) => part.split("x").map(Number))
+      .map(([slot, ratio]) => [sw(slot), ratio]).sort((x, y) => x[0] - y[0])
+      .map(([slot, ratio]) => slot + "x" + ratio).join("+");
+  }
+  return v;
+}
+function resetSlotColors() {
+  if (!confirm(t("slots.defaultsConfirm"))) return;
+  for (const k of Object.keys(SLOT_MEMO)) if (k.startsWith("slot")) delete SLOT_MEMO[k];
+  $("slots").innerHTML = ""; // sonst übernimmt renderSlots die alten Werte aus dem DOM
+  renderSlots();
+  saveSlots();
+  renderMapping();
 }
 function syncHex(s) { $("slotHex" + s).value = $("slotCol" + s).value.toUpperCase(); }
 function syncCol(s) { const v = PaintPortCore.normalizeHex($("slotHex" + s).value); $("slotHex" + s).value = v; $("slotCol" + s).value = v; }
@@ -1709,6 +1786,7 @@ function applyPreset(idx) {
   if (preset.colors.length > n) {
     setStatus(t("preset.tooMany", { id: preset.label || preset.id, have: preset.colors.length, n }), "err");
   }
+  saveSlots();
   renderMapping();
 }
 function activeSlots() {
@@ -1769,12 +1847,13 @@ function resolveTarget(sel, f, slots) {
   return mix ? { kind: "mix", color: mix.predicted, mix } : { kind: "none" };
 }
 
-function renderMapping() {
+// slotSwap: optional [a, b] aus moveSlot — bisherige Zuordnungen folgen der getauschten Farbe
+function renderMapping(slotSwap) {
   if (!MODEL) return;
   const tb = $("mapTable").querySelector("tbody");
   const slots = activeSlots();
   const prev = {};
-  tb.querySelectorAll("select").forEach((sel) => { prev[sel.dataset.fil] = sel.value; });
+  tb.querySelectorAll("select").forEach((sel) => { prev[sel.dataset.fil] = slotSwap ? swapSlotRef(sel.value, ...slotSwap) : sel.value; });
   tb.innerHTML = "";
   const remapped = [];
   for (const f of MODEL.filaments) {
