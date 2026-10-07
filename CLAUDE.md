@@ -51,5 +51,5 @@ To validate a Prusa export fully, round-trip it through PrusaSlicer and compare 
 - Code comments and test output are in German. Match that when editing.
 - Object names from imported files must reach the DOM only through `esc(...)`, and filament colors only through `normalizeHex`. `test_regression.mjs` statically asserts this (for example, no raw `${o.name}` in the HTML).
 - If "Allow ColorMix" is off, the export must throw instead of writing blends. The regression suite checks this invariant with a regex on the source.
-- Keep it a single file with no external requests: no CDN, no network, and the only storage is the localStorage keys for language, theme, welcome-seen and slot colors (`paintport_slots`). The Reset button reloads the page but keeps all of these.
+- Keep it a single file with no external requests: no CDN, no network, and the only storage is the localStorage keys for language, theme, welcome-seen, slot colors (`paintport_slots`) and per-target extruder count (`paintport_printerN`). The Reset button reloads the page but keeps all of these.
 - License: AGPL-3.0. The formats were reimplemented for interoperability, so don't copy code from PrusaSlicer, Primed3D or the slicer sources.
