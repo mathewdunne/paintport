@@ -30,7 +30,7 @@ Slicer können die Dreiecks-*Bemalung* der jeweils anderen lesen — aber nicht 
 
 ## Datenschutz
 
-Alles passiert in deinem Browser. Keine Uploads, kein Server, keine Cookies, keine Analytics. Gespeichert werden nur vier localStorage-Einstellungen (Sprache, Design-Modus, „Willkommen gesehen", Spulenfarben der Slots).
+Alles passiert in deinem Browser. Keine Uploads, kein Server, keine Cookies, keine Analytics. Gespeichert werden nur fünf localStorage-Einstellungen (Sprache, Design-Modus, „Willkommen gesehen", Spulenfarben der Slots, Extruderzahl je Ziel).
 
 ## Entwicklung
 

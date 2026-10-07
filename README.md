@@ -30,7 +30,7 @@ Slicers can read each other's triangle *painting* — but not its *meaning*: the
 
 ## Privacy
 
-Everything happens in your browser. No uploads, no server, no cookies, no analytics. The only stored data are four localStorage keys (language, theme, "welcome seen", slot spool colors).
+Everything happens in your browser. No uploads, no server, no cookies, no analytics. The only stored data are five localStorage keys (language, theme, "welcome seen", slot spool colors, extruder count per target).
 
 ## Development
 

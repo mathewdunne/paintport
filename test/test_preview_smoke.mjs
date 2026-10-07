@@ -392,6 +392,17 @@ const smoke = `
     R.slotDefaultsOk = byId("slotHex1").value === DEFAULT_SLOTS[0] && byId("slotOn5").checked && !byId("slotOn6").checked &&
       JSON.parse(localStorage.getItem("paintport_slots"))[0].c === DEFAULT_SLOTS[0];
 
+    // --- 18) Extruderzahl je Ziel gespeichert: Prusa 6 überlebt Zielwechsel und Reload,
+    //         Ziele ohne gespeicherten Wert behalten ihren Default.
+    byId("exportTarget").value = "prusa"; onTargetChange();
+    byId("printerN").value = "6"; byId("printerN").dispatchEvent(new Event("change"));
+    byId("exportTarget").value = "bambu"; onTargetChange();
+    const bambuN = byId("printerN").value;
+    byId("exportTarget").value = "prusa"; onTargetChange();
+    R.printerNSavedOk = bambuN === "16" && byId("printerN").value === "6" &&
+      JSON.parse(localStorage.getItem("paintport_printerN")).prusa === 6 &&
+      !byId("slotOn7") && targetPrinterN() === 6;
+
     R.ok = R.mixToggleHadMix === true && R.mixToggleOffOk === true && R.nameEscaped === true &&
            orig.red > 100 && orig.green > 100 && R.mixOptionCount >= 3 &&
            R.pinnedResHasSwatch && R.collisionBadges === 2 &&
@@ -412,7 +423,7 @@ const smoke = `
            R.autoMixBase === true && R.autoExactStays === true && R.autoMixOff === true &&
            R.moveColorsOk === true && R.moveMapPhysOk === true && R.moveMapMixOk === true &&
            R.moveBtnsOk === true && R.persistSavedOk === true && R.persistLoadOk === true &&
-           R.slotDefaultsOk === true;
+           R.slotDefaultsOk === true && R.printerNSavedOk === true;
   } catch (e) { R.error = String(e && e.stack || e); }
   document.title = "RESULT:" + JSON.stringify(R);
 })();

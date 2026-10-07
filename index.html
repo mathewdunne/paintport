@@ -178,7 +178,7 @@ body.dark .warnbox{background:var(--koralle);color:var(--warmweiss)}
   <h2 data-i18n="step.slots">2 · Filament-Slots (Spulen am Drucker)</h2>
   <div class="row" style="margin-bottom:10px">
     <label style="font-size:12.5px;color:var(--txd)"><span data-i18n="slots.printerN">Drucker-Extruderzahl:</span>
-      <input type="number" id="printerN" min="1" max="16" value="8" style="width:62px" onchange="renderSlots();renderMapping()">
+      <input type="number" id="printerN" min="1" max="16" value="8" style="width:62px" onchange="savePrinterN();renderSlots();renderMapping()">
     </label>
     <span class="hint" style="margin-top:0" id="printerHint" data-i18n="slots.printerHint">Core One INDX 8T = 8. Virtuelle ColorMix-Extruder bekommen IDs oberhalb dieser Zahl.</span>
   </div>
@@ -286,7 +286,7 @@ Es wird kein Code dieser Projekte ausgeliefert; Formate wurden zur Interoperabil
     <button class="mclose" onclick="closeModal('termsModal')">✕</button>
     <div class="mlogo" data-i18n="terms.title">Nutzung &amp; Datenschutz</div>
     <h3 data-i18n="terms.hPrivacy">Deine Daten</h3>
-    <p data-i18n="terms.privacy">Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur vier lokale Einstellungen (Sprache, Design-Modus, „Willkommen gesehen“, Spulenfarben der Slots) im localStorage deines Browsers.</p>
+    <p data-i18n="terms.privacy">Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur fünf lokale Einstellungen (Sprache, Design-Modus, „Willkommen gesehen“, Spulenfarben der Slots, Extruderzahl je Ziel) im localStorage deines Browsers.</p>
     <h3 data-i18n="terms.hOpenSource">Open Source</h3>
     <p data-i18n-html="terms.openSource">PaintPort ist freie Software unter der <b>AGPL-3.0</b> — Quellcode auf <a href="https://github.com/perspektive3D/paintport" target="_blank">GitHub</a>. © Nils Stackler / perspektive3D.</p>
     <h3 data-i18n="terms.hWarranty">Keine Gewähr</h3>
@@ -1410,7 +1410,7 @@ const I18N = {
     "thanks.subEn": "▶ Subscribe p3d-intl (EN)",
     "terms.title": "Nutzung & Datenschutz",
     "terms.hPrivacy": "Deine Daten",
-    "terms.privacy": "Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur vier lokale Einstellungen (Sprache, Design-Modus, „Willkommen gesehen“, Spulenfarben der Slots) im localStorage deines Browsers.",
+    "terms.privacy": "Alles passiert in deinem Browser: keine Uploads, kein Server, kein Tracking, keine Cookies. Gespeichert werden nur fünf lokale Einstellungen (Sprache, Design-Modus, „Willkommen gesehen“, Spulenfarben der Slots, Extruderzahl je Ziel) im localStorage deines Browsers.",
     "terms.hOpenSource": "Open Source",
     "terms.openSource": 'PaintPort ist freie Software unter der <b>AGPL-3.0</b> — Quellcode auf <a href="https://github.com/perspektive3D/paintport" target="_blank">GitHub</a>. © Nils Stackler / perspektive3D.',
     "terms.hWarranty": "Keine Gewähr",
@@ -1425,7 +1425,7 @@ const I18N = {
     "err.ERR_NO_MODEL": "3D/3dmodel.model fehlt — keine gültige 3MF-Datei.",
     "err.ERR_MISSING_REF": "Referenzierte Modelldatei fehlt im Archiv: {detail}",
     "reset.btn": "Zurücksetzen — neues Modell laden",
-    "reset.confirm": "Alles zurücksetzen? Geladenes Modell und Zuordnung gehen verloren (Sprache, Design und Spulenfarben der Slots bleiben).",
+    "reset.confirm": "Alles zurücksetzen? Geladenes Modell und Zuordnung gehen verloren (Sprache, Design, Spulenfarben der Slots und Extruderzahl bleiben).",
     "err.ERR_NO_OBJECTS": "Keine druckbaren Objekte in der Datei gefunden.",
     "err.ERR_UNIT": "Die Datei nutzt eine andere Einheit als Millimeter — das wird nicht unterstützt (die Größe würde sich ändern). Bitte im Slicer in mm neu speichern.",
     "err.ERR_BBS_NO_MIX": "Interner Fehler: ColorMix-Export ohne Zielformat.",
@@ -1518,7 +1518,7 @@ const I18N = {
     "thanks.subEn": "▶ Subscribe p3d-intl (English)",
     "terms.title": "Terms & Privacy",
     "terms.hPrivacy": "Your data",
-    "terms.privacy": 'Everything happens in your browser: no uploads, no server, no tracking, no cookies. Only four local settings (language, theme, "welcome seen", slot spool colors) are stored in your browser localStorage.',
+    "terms.privacy": 'Everything happens in your browser: no uploads, no server, no tracking, no cookies. Only five local settings (language, theme, "welcome seen", slot spool colors, extruder count per target) are stored in your browser localStorage.',
     "terms.hOpenSource": "Open source",
     "terms.openSource": 'PaintPort is free software under the <b>AGPL-3.0</b> — source code on <a href="https://github.com/perspektive3D/paintport" target="_blank">GitHub</a>. © Nils Stackler / perspektive3D.',
     "terms.hWarranty": "No warranty",
@@ -1533,7 +1533,7 @@ const I18N = {
     "err.ERR_NO_MODEL": "3D/3dmodel.model missing — not a valid 3MF file.",
     "err.ERR_MISSING_REF": "Referenced model file missing from archive: {detail}",
     "reset.btn": "Reset — load a new model",
-    "reset.confirm": "Reset everything? The loaded model and mapping will be lost (language, theme and slot spool colors are kept).",
+    "reset.confirm": "Reset everything? The loaded model and mapping will be lost (language, theme, slot spool colors and extruder count are kept).",
     "err.ERR_NO_OBJECTS": "No printable objects found in the file.",
     "err.ERR_UNIT": "This file uses a unit other than millimeters, which is not supported (the size would change). Please re-save it in mm from your slicer.",
     "err.ERR_BBS_NO_MIX": "Internal error: ColorMix export without a target mix format.",
@@ -1598,9 +1598,23 @@ const TARGETS = {
   snapmaker: { flavor: "bambu", suffix: "_snapmaker", printerN: 4,  mix: true,  btn: "export.btnSnapmaker", hint: "export.hintSnapmaker", printerHint: "slots.printerHintU1", bbsApp: "BambuStudio-2.3.5", mixFormat: "snapmaker" },
 };
 function currentTarget() { const el = $("exportTarget"); return TARGETS[el ? el.value : "prusa"] || TARGETS.prusa; }
+// Extruderzahl je Ziel im localStorage ({prusa: 6, …}) — Nutzerwert überlebt Reload und Zielwechsel
+const PRINTER_N_KEY = "paintport_printerN";
+function savedPrinterN() {
+  try { const o = JSON.parse(store.get(PRINTER_N_KEY)); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; }
+}
+function savePrinterN() {
+  const o = savedPrinterN();
+  o[$("exportTarget").value] = printerCount();
+  store.set(PRINTER_N_KEY, JSON.stringify(o));
+}
+function targetPrinterN() {
+  const n = savedPrinterN()[$("exportTarget").value];
+  return Number.isInteger(n) && n >= 1 && n <= 16 ? n : currentTarget().printerN;
+}
 function onTargetChange() {
   const tgt = currentTarget();
-  $("printerN").value = tgt.printerN;
+  $("printerN").value = targetPrinterN();
   const mix = $("allowMix");
   mix.disabled = !tgt.mix;
   if (!tgt.mix) mix.checked = false; // Nutzerwahl bei erlaubtem Mix nicht überschreiben
@@ -2327,6 +2341,7 @@ function setPreviewMode(mode) {
 }
 
 renderPresetButtons();
+$("printerN").value = targetPrinterN();
 applyI18n();
 applyTheme();
 $("verFoot").textContent = "PaintPort v" + PaintPortCore.version;
