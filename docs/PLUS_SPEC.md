@@ -265,9 +265,26 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
    - Actions workflow deploying to Pages.
    - Import a 3MF/STL/OBJ and render it in three.js with its colors and orbit/pan/zoom.
      Light/dark theme.
-2. **Paint MVP**: design palette with its operations, brush (visible-only and paint
-   through), shell fill, smart fill, eraser, eyedropper, undo/redo, hover preview,
-   Objects tab, IndexedDB autosave.
+2. **Paint MVP**, in three gated steps:
+   - **2.0 PrusaSlicer project import.** `load3MF` also reads PrusaSlicer projects:
+     physical colors from `Metadata/Slic3r_PE.config` (`extruder_colour`, falling back
+     per slot to `filament_colour`), ColorMix virtual extruders from
+     `Metadata/Prusa_Slicer_full_spectrum.json` (their stored color becomes the design
+     color; the recipe is kept as a hint for phase 3 mapping), and object/volume base
+     extruders from `Metadata/Slic3r_PE_model.config`. This is a deliberate extension
+     beyond the classic tool. (Found with a real Core One INDX ColorMix project, Q7.0.)
+   - **2.1 Document editing (DOM-free).** PaintField edit operations, undo stack,
+     palette operations, base colors, mesh adjacency for shell/smart fill, autosave
+     serialization.
+   - **2.2 Tools and UI.** BVH picking, brush (visible-only and paint through), shell
+     fill, smart fill, eraser, eyedropper, hover preview, undo/redo keys, palette UI,
+     Objects tab (visibility/isolate, base color), autosave wiring, "New" action.
+   Palette details (Q7.1–Q7.3): the design palette shows only colors that are painted
+   or used as a base; unused file slots are dropped on import. Colors are edited with a
+   popover picker (saturation/hue area plus hex input, react-colorful). Colors the file
+   didn't define get distinct generated colors (no repeats) and an "unknown color"
+   marker until edited. _default_ On reload, the last project auto-restores; a "New"
+   action in the header discards it after confirmation.
 3. **Mapping + export parity**: Export tab with spools, auto-map, ColorMix, all three
    targets, the design/print toggle, and the design sidecar. Known gap to close here:
    `load3MF` ignores PrusaSlicer's per-object/volume `extruder` in
@@ -308,3 +325,7 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q5.3 | Palette ops | Edit = recolor all, delete/merge, eyedropper |
 | Q5.4 | Checkpoint | After phase 1 |
 | Q6.1 | Lossless saving | Design sidecar embedded in exports |
+| Q7.0 | Prusa project colors | Real file showed fallback colors: importer must read PrusaSlicer project metadata (phase 2.0) |
+| Q7.1 | Unused file slots | Design palette shows only used colors |
+| Q7.2 | Color picker | Popover picker + hex |
+| Q7.3 | Reopening | Auto-restore + "New" button |
