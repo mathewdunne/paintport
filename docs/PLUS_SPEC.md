@@ -177,14 +177,21 @@ Rules:
 ```ts
 interface Project {
   palette: DesignColor[];            // index = paint state; [0] unused (0 = base)
-  objects: ProjectObject[];          // geometry, parts, transforms from import
-  fields: PaintField[];              // one per object
-  baseColor: Map<PartId, State>;     // per part
+  objects: ProjectObject[];          // mesh, parts (volume types, file extruders),
+                                     // transform, name, printable flag
+  fields: PaintFieldView[];          // read-only views; edit only through Project
+  baseColor: Map<PartId, State>;     // ModelParts and ParameterModifiers
   source: SourceInfo;                // original file identity, dialect, filaments
-  mapping: Map<State, MappingTarget>;// design color → spool | blend (export only)
+  mapping: Map<State, MappingTarget>;// design color → spool | blend (phase 3)
 }
 type State = number; // design-palette index; 0 = unpainted / base
+interface DesignColor { color: string; known: boolean; mix?: MixHint }
 ```
+
+The source `ModelObject` is not retained after import: everything export needs is
+copied into `ProjectObject`/`SourceInfo`, and paint lives only in the fields (in design
+states). All edits go through `Project` methods, which record undo steps (count limit
+200 plus a memory budget) and emit change events for incremental viewer updates.
 
 ### 5.2 PaintField: the seam for options 2 and 3
 
@@ -223,14 +230,16 @@ interface PaintField {
 
 ### 5.3 v1: `TrianglePaintField`
 - `states: Uint16Array`, one per triangle.
-- `preserved: (string | null)[]`: the original paint tree, rewritten into design states
-  at import, for triangles that had sub-triangle detail. `serialize` emits it verbatim.
-  Painting a triangle sets its state and clears its `preserved` entry. `remap` remaps
-  leaves inside preserved trees with the existing codec.
-- `paintSphere`: triangles the sphere intersects (closest point on the triangle within
-  the radius), found with a three-mesh-bvh shapecast.
-- `EditRecord` = `{ tris: Uint32Array, before: Uint16Array, after: Uint16Array,
-  preservedBefore: Map<number, string> }`. It's opaque to callers, so options 2/3 can
+- `preserved: Map<tri, string>` (sparse): the original paint tree, rewritten into design
+  states at import (internal dialect `bbs`, which is unbounded), for triangles that had
+  sub-triangle detail. Export converts it to the target dialect. Painting a triangle sets
+  its state and deletes its `preserved` entry. `remap` remaps leaves inside preserved
+  trees with the existing codec.
+- `paintSphere`: the view narrows candidates with a three-mesh-bvh shapecast and filters
+  them for visibility; the field does the exact test (closest point on the triangle
+  within the radius) on those candidates.
+- `EditRecord` = `{ tris: Uint32Array, before: Uint16Array, after: Uint16Array | number,
+  preservedBefore: Map<number, string> }` (a single `after` value for uniform fills). It's opaque to callers, so options 2/3 can
   store tree or topology snapshots instead.
 
 How options 2 and 3 fit in later:
