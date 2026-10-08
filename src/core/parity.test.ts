@@ -29,6 +29,9 @@ vi.setConfig({ testTimeout: 60_000 * Math.max(1, S) });
 const PROTO_SUBTYPE = /subtype="(?:constructor|toString|__proto__)"/;
 const PROTO_SUBTYPE_ALL = new RegExp(PROTO_SUBTYPE.source, "g");
 const DIALECTS: (PaintDialect | undefined)[] = ["prusa", "bbs", undefined];
+// INTENDED DIVERGENCE (PrusaSlicer project import, phase 2.0): the port reads these archive
+// members, the classic tool ignores them. PaintPort's own Prusa exports contain them.
+const PRUSA_PROJECT_MEMBERS = new Set(["Metadata/Slic3r_PE.config", "Metadata/Slic3r_PE_model.config", "Metadata/Prusa_Slicer_full_spectrum.json"]);
 const coverage: Record<string, number> = {};
 const bump = (k: string, n = 1) => { coverage[k] = (coverage[k] ?? 0) + n; };
 
@@ -402,7 +405,21 @@ describe("3MF load/build parity", () => {
           if (j === 0 && i % 3 === 0) {
             const zo = await O.zipAll(eo.ok.entries);
             assertParity("zipAll(build output)", info, zo, await zipAll((ep as { ok: typeof eo.ok }).ok.entries));
-            assertParity("load3MF(re-import)", info, await attemptAsync(() => O.load3MF(zo)), await attemptAsync(() => load3MF(zo)));
+            // To keep everything else under strict equality, the port re-imports the archive
+            // without those members, and the classic tool is shown to ignore them (it loads
+            // the full and the stripped archive identically). The extension itself is covered
+            // by src/core/threemf/prusaProject.test.ts, including the round trip of these
+            // exports. The full archive must still load.
+            const hasPrusaMeta = eo.ok.entries.some((e) => PRUSA_PROJECT_MEMBERS.has(e.name));
+            let zpIn = zo;
+            if (hasPrusaMeta) {
+              zpIn = await zipAll(eo.ok.entries.filter((e) => !PRUSA_PROJECT_MEMBERS.has(e.name)));
+              assertParity("load3MF(re-import): classic ignores Prusa project members", info, await attemptAsync(() => O.load3MF(zo)), await attemptAsync(() => O.load3MF(zpIn)));
+              const classicFull = await attemptAsync(() => O.load3MF(zo));
+              if ("ok" in classicFull) expect("ok" in (await attemptAsync(() => load3MF(zo))), `${info}: re-import with Prusa project members`).toBe(true);
+              bump("re-imported exports with Prusa project members");
+            }
+            assertParity("load3MF(re-import)", info, await attemptAsync(() => O.load3MF(zo)), await attemptAsync(() => load3MF(zpIn)));
             bump("re-imported exports");
           }
         } else {
@@ -428,6 +445,7 @@ describe("3MF load/build parity", () => {
     need("builds with bambu mix arrays", N / 40);
     need("builds with full_spectrum.json", N / 20);
     need("builds with MmPaintingVersion 2", 1);
+    need("re-imported exports with Prusa project members", 1);
     need("build error: ERR_BBS_NO_MIX", 1);
     need("archives with prototype-key subtypes", 5);
     need("... of which the original leaks a non-string type", 1);

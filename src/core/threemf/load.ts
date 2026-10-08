@@ -1,9 +1,10 @@
 import { normalizeHex } from "../color";
 import { coreError } from "../errors";
 import { collectStates, type PaintDialect } from "../paint/codec";
-import type { Filament, Model, ModelObject, PartRange, SourceIdentity, VolumeType } from "../types";
+import type { Filament, MixComponentRef, Model, ModelObject, PartRange, SourceIdentity, VolumeType } from "../types";
 import { unzipAll } from "../zip";
 import { applyTransform, composeTransform, parseTransform, type Transform } from "./transform";
+import { parsePrusaModelConfig, readPrusaFilaments, type PrusaObjectMeta } from "./prusaProject";
 import { parseAttrs, parseModelXML, type ParsedModelXml, type XmlMeshObject } from "./xml";
 
 // Bambu part subtype -> PrusaSlicer volume_type (strings as ModelVolume::type_to_string
@@ -26,7 +27,15 @@ function volumeTypeOf(subtype: string | undefined): VolumeType {
   return (subtype !== undefined && Object.hasOwn(VOLUME_TYPES, subtype) ? VOLUME_TYPES[subtype] : undefined) || "ModelPart";
 }
 
-/** Per-part data from Bambu's model_settings.config. */
+/** Volume type from the volume_type string PrusaSlicer writes; anything else is a ModelPart. */
+function prusaVolumeTypeOf(raw: string | null): VolumeType {
+  return Object.values(VOLUME_TYPES).find((t) => t === raw) || "ModelPart";
+}
+
+/**
+ * Per-part data from Bambu's model_settings.config (or, for PrusaSlicer projects, the
+ * volumes of Slic3r_PE_model.config).
+ */
 interface PartMeta {
   extruder: number | null;
   type: VolumeType;
@@ -39,7 +48,7 @@ interface PartMeta {
 }
 type RangePartMeta = PartMeta & { firstid: number; lastid: number };
 
-/** Per-object data from Bambu's model_settings.config. */
+/** Per-object data from Bambu's model_settings.config / PrusaSlicer's Slic3r_PE_model.config. */
 interface ObjMeta {
   name: string | null;
   extruder: number;
@@ -54,6 +63,18 @@ interface SourcePart {
   type: VolumeType;
   partName: string | null;
   ranges?: RangePartMeta[] | null;
+}
+
+/**
+ * PrusaSlicer volumes become range parts (a Prusa object is one mesh; the volumes are
+ * triangle ranges of it). They are keyed "#<n>", which no component object id can equal.
+ */
+function prusaObjMeta(p: PrusaObjectMeta): ObjMeta {
+  const parts = new Map<string, PartMeta>();
+  p.volumes.forEach((v, k) => parts.set("#" + k, {
+    extruder: v.extruder, type: prusaVolumeTypeOf(v.volumeType), name: v.name, firstid: v.firstid, lastid: v.lastid,
+  }));
+  return { name: p.name, extruder: p.extruder, parts };
 }
 
 /**
@@ -155,12 +176,25 @@ export async function load3MF(bytes: Uint8Array): Promise<Model> {
     } catch (e) { /* broken Bambu JSON -> colors unknown */ }
   }
 
+  // PrusaSlicer project metadata: a deliberate extension beyond the classic tool. Bambu
+  // metadata keeps precedence wherever it exists: Prusa colors and ColorMix recipes are
+  // read only when project_settings.config gave no filament_colour list, and an object
+  // uses the Prusa extruders only when model_settings.config has no entry for it.
+  const prusaObjMetas = new Map<string, ObjMeta>();
+  const prusaCfg = text("Metadata/Slic3r_PE_model.config");
+  if (prusaCfg) for (const [id, p] of parsePrusaModelConfig(prusaCfg)) prusaObjMetas.set(id, prusaObjMeta(p));
+  let mixOf = new Map<number, MixComponentRef[]>(); // ColorMix recipe per virtual extruder id
+  if (!filamentColors) {
+    const prusa = readPrusaFilaments(text("Metadata/Slic3r_PE.config"), text("Metadata/Prusa_Slicer_full_spectrum.json"));
+    if (prusa) { filamentColors = prusa.colors; mixOf = prusa.mix; }
+  }
+
   // Resolve build items -> flat object list with component transforms baked in
   const outObjects: ModelObject[] = [];
   for (const item of main.buildItems) {
     const mo = main.objects.get(item.objectid);
     if (!mo) continue;
-    const meta: ObjMeta = getKey(objMeta, item.objectid) || { name: null, extruder: 1, parts: new Map() };
+    const meta: ObjMeta = getKey(objMeta, item.objectid) || getKey(prusaObjMetas, item.objectid) || { name: null, extruder: 1, parts: new Map() };
     const parts: SourcePart[] = [];
     if (mo.hasMesh) {
       // Range parts only in the pure single-mesh case (no components): Bambu files
@@ -281,7 +315,7 @@ export async function load3MF(bytes: Uint8Array): Promise<Model> {
     ...outObjects.flatMap((o) => o.parts.filter((p) => p.type === "ModelPart").map((p) => p.extruder)));
   const FALLBACK = ["#26A69A", "#EF5350", "#FFCA28", "#5C6BC0", "#8D6E63", "#66BB6A", "#EC407A", "#78909C"];
   for (let i = 1; i <= nFil; i++) {
-    filaments.push({
+    const filament: Filament = {
       index: i,
       color: (filamentColors && filamentColors[i - 1]) || FALLBACK[(i - 1) % FALLBACK.length],
       colorKnown: !!(filamentColors && filamentColors[i - 1]),
@@ -290,7 +324,10 @@ export async function load3MF(bytes: Uint8Array): Promise<Model> {
       paintedShare: stateShare.get(i) || 0,
       baseShare: baseShare.get(i) || 0,
       isDefaultOf: outObjects.filter((o) => o.defaultExtruder === i).length,
-    });
+    };
+    const mix = mixOf.get(i);
+    if (mix) filament.mix = mix;
+    filaments.push(filament);
   }
   return { objects: outObjects, filaments, unpainted, totalTris, usedExtruders, specialVolumes, sourceIdentity, paintDialect };
 }

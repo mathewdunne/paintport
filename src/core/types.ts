@@ -55,6 +55,12 @@ export interface Filament {
   baseShare: number;
   /** Number of objects that use this filament as their default extruder. */
   isDefaultOf: number;
+  /**
+   * ColorMix recipe when the source file defines this id as a virtual extruder (PrusaSlicer
+   * Prusa_Slicer_full_spectrum.json). `extruder` refers to the file's physical extruders.
+   * Absent for physical filaments, and for every non-PrusaSlicer source.
+   */
+  mix?: MixComponentRef[];
 }
 
 /**

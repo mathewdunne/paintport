@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emitPaintTree, load3MF, zipAll, type Model, type PaintNode } from "../core";
 import { binaryStl, CUBE_TRIS } from "../../test/support/fixtures";
+import { archive, FULL_SPECTRUM, modelConfig, PE_CONFIG, PE_MODEL, peConfig } from "../../test/support/prusaArchive";
 import { parseStl } from "../formats/stl";
 import { printSurfaceMask, resolveDisplayStates, resolveTriangleState } from "./display";
 import { createProject, partId } from "./project";
@@ -84,6 +85,28 @@ describe("createProject (painted 3MF)", () => {
       const bulk = Array.from(resolveDisplayStates(p, 0));
       expect(bulk.map((_, t) => resolveTriangleState(p, 0, t))).toEqual(bulk);
     }
+  });
+});
+
+describe("createProject (PrusaSlicer project)", () => {
+  it("uses the project's colors, keeps the ColorMix recipe as a hint and takes the base extruder from the file", async () => {
+    const model = await load3MF(await archive({
+      objects: [{ id: "1", paints: [emitPaintTree({ state: 5 }, "prusa"), ""] }],
+      members: {
+        [PE_CONFIG]: peConfig({ extruder_colour: "#00FFFF;#FF0080;#FFFF00;#FFFFFF" }),
+        [FULL_SPECTRUM]: JSON.stringify({ virtual_extruders: [{ id: 5, kind: "fullspectrum", color: "#30f845", components: [{ extruder: 1, ratio: 1 }, { extruder: 3, ratio: 1 }] }] }),
+        [PE_MODEL]: modelConfig([{ id: "1", extruder: 4, volumes: [{ first: 0, last: 1 }] }]),
+      },
+    }));
+    const p = createProject(model);
+    expect(p.palette.map((c) => c.color)).toEqual(["#808080", "#00FFFF", "#FF0080", "#FFFF00", "#FFFFFF", "#30F845"]);
+    expect(p.palette[5].mix).toEqual([{ extruder: 1, ratio: 1 }, { extruder: 3, ratio: 1 }]);
+    for (const c of p.palette.slice(0, 5)) expect(c).not.toHaveProperty("mix");
+    expect(p.baseColor.get(partId(0, 0))).toBe(4);
+    expect(Array.from(resolveDisplayStates(p, 0))).toEqual([5, 4]);
+    // the hint is a copy: editing the palette must not reach back into the imported filaments
+    p.palette[5].mix![0].ratio = 9;
+    expect(model.filaments[4].mix![0].ratio).toBe(1);
   });
 });
 

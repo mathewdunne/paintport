@@ -286,10 +286,9 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
    marker until edited. _default_ On reload, the last project auto-restores; a "New"
    action in the header discards it after confirmation.
 3. **Mapping + export parity**: Export tab with spools, auto-map, ColorMix, all three
-   targets, the design/print toggle, and the design sidecar. Known gap to close here:
-   `load3MF` ignores PrusaSlicer's per-object/volume `extruder` in
-   `Metadata/Slic3r_PE_model.config` (classic behavior), so imported Prusa projects
-   currently get filament 1 as every base color. Once this phase is done,
+   targets, the design/print toggle, and the design sidecar. The imported ColorMix recipe
+   hints (`mix` on palette entries, from phase 2.0) should pre-fill the mapping when the
+   user's spools match the file's physical extruders. Once this phase is done,
    `/classic/` can be retired (user's call).
 4. **More selection tools**: mirror painting, lasso/box (with paint through),
    select-by-color, maybe texture bake.

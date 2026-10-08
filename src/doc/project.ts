@@ -1,4 +1,4 @@
-import { normalizeHex, type Filament, type Model, type ModelObject, type PaintDialect, type SourceIdentity, type VolumeType } from "../core";
+import { normalizeHex, type Filament, type MixComponentRef, type Model, type ModelObject, type PaintDialect, type SourceIdentity, type VolumeType } from "../core";
 import type { PaintField, State } from "./paintField";
 import { TrianglePaintField } from "./trianglePaintField";
 
@@ -10,6 +10,12 @@ export const partId = (objectIndex: number, partIndex: number): PartId => `${obj
 export interface DesignColor {
   /** "#RRGGBB", upper case. */
   color: string;
+  /**
+   * Hint for the phase 3 mapping: the ColorMix recipe the imported file stored for this
+   * color (a PrusaSlicer virtual extruder). `extruder` numbers the file's physical
+   * extruders, not palette entries, so it stays valid when the palette is reordered.
+   */
+  mix?: MixComponentRef[];
 }
 
 export interface ProjectPart {
@@ -75,7 +81,9 @@ export function createProject(model: Model): Project {
   const palette: DesignColor[] = [{ color: UNUSED_SLOT_COLOR }];
   for (let i = 1; i <= size; i++) {
     const known = model.filaments[i - 1];
-    palette.push({ color: known ? normalizeHex(known.color) : FALLBACK[(i - 1) % FALLBACK.length] });
+    const entry: DesignColor = { color: known ? normalizeHex(known.color) : FALLBACK[(i - 1) % FALLBACK.length] };
+    if (known?.mix) entry.mix = known.mix.map((c) => ({ ...c }));
+    palette.push(entry);
   }
 
   const baseColor = new Map<PartId, State>();

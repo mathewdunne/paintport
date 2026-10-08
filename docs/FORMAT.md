@@ -212,3 +212,41 @@ Per-slot string arrays, empty/`"0"` for physical slots:
 - `enable_mixed_color_sublayer` is a process/quality key — PaintPort deliberately leaves
   it to the user's preset instead of forcing it from the project.
 - MakerWorld rejects mixed-filament 3MFs for upload.
+
+## 9. Reading PrusaSlicer projects (PaintPort+ only)
+
+The classic tool ignores PrusaSlicer's project metadata; the PaintPort+ loader reads it
+(`src/core/threemf/prusaProject.ts`). Verified on a real PrusaSlicer 2.9.6 Core One INDX 4T
+ColorMix project.
+
+- **Colors**: `Metadata/Slic3r_PE.config` is a `; key = value` list. Per physical slot the
+  first hit wins: `extruder_colour`, then the full-spectrum JSON's `physical_extruders`,
+  then `filament_colour` (PrusaSlicer's own fallback; its default `#FF8000` is a real value).
+  The slot count is the longest of those lists. libslic3r writes a string vector joined by
+  `;`; an empty entry is nothing between the semicolons (`;;;` = four unset slots) and a
+  vector whose only entry is empty is `""`. **That empty-entry encoding comes from libslic3r's
+  serializer, not from a real file:** the one real project checked had no empty entries, so
+  `;;` and `""` are covered by unit tests only. A quote that is never closed ends at the end
+  of its line, and CRLF line endings are accepted.
+- **ColorMix**: each entry of `virtual_extruders` (ids above the physical count) becomes a
+  filament with the stored color and `mix` = its `components`. Malformed entries are
+  skipped; without any physical-slot information the virtual ids cannot be validated and
+  are ignored. The `extruder` numbers in `mix` are the **file's physical extruders**, not
+  indices into PaintPort+'s design palette (which may be reordered or compacted later).
+- **Base extruders**: `Metadata/Slic3r_PE_model.config` `<object id>` equals the
+  `<object id>` of `3D/3dmodel.model` and the build item's `objectid`. The object-level
+  `extruder` is the object's default; every `<volume firstid lastid>` is a triangle range
+  of that object's single mesh, with `volume_type` and an `extruder` override (0 or absent
+  = inherit the object's). A volume without `volume_type` that has the pre-2.4
+  `key="modifier" value="1"` is a `ParameterModifier`. Metadata of layer ranges is not read.
+- **Clamps (272)**: 272 is the highest extruder a Prusa paint string can address (17 + an
+  8-bit escape field). Every extruder number read from these files is limited to it so a
+  hostile file cannot allocate millions of filament slots: color lists are cut to 272
+  entries, virtual ids above 272 are ignored, and an object extruder above 272 reads as 1
+  and a volume extruder above 272 as inherit.
+- **Scanning**: `Slic3r_PE_model.config` is scanned with `indexOf` rather than lazy regexes,
+  which would be quadratic on many unterminated tags; an element without a closing tag ends
+  the scan.
+- **Precedence**: Bambu metadata wins where it exists. Prusa colors and recipes are read
+  only when `project_settings.config` has no `filament_colour` list; Prusa extruders apply
+  per object that `model_settings.config` does not list.
