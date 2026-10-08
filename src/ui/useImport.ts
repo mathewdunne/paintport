@@ -36,7 +36,7 @@ export function useImport(notify: Notify, dismissNotice: (key: string) => void) 
     try {
       await nextPaint();
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const next = createProject(await importFile(file.name, bytes));
+      const next = createProject(await importFile(file.name, bytes), { name: file.name.replace(/\.[^.]*$/, "") });
       if (id === latest.current) setProject(next);
     } catch (e) {
       if (id === latest.current) setError(errorMessage(e));

@@ -8,6 +8,8 @@ export type DocErrorCode =
   | "BASE_IN_USE"
   /** A base color was set on a part that has none (not a ModelPart), or the part does not exist. */
   | "NOT_BASE_PART"
+  /** `setPin` was given something that is not a valid mapping pin (see `pinProblem`). */
+  | "PIN_INVALID"
   /** The palette cannot hold more colors (states are 16 bit). */
   | "PALETTE_FULL"
   /** The snapshot was written by another (or no known) format version. */

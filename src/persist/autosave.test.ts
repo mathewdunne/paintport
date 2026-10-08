@@ -100,6 +100,26 @@ describe("Autosaver", () => {
     a.dispose();
   });
 
+  it("saves a mapping pin change although it is not an undo step", async () => {
+    const store = memoryStore();
+    const saver = new ProjectSaver(store);
+    const p = project();
+    await saver.save(p);
+    const a = new Autosaver(p, saver, {}, env());
+    store.log.length = 0;
+    const steps = p.undoCount;
+    p.setPin(1, { kind: "spool", slot: 3 });
+    expect(p.undoCount).toBe(steps);
+    await settle();
+    expect(store.log).toEqual(["paint"]);
+    const restored = await restoreProject(store);
+    expect(restored.status === "restored" && restored.project.mapping.get(1)).toEqual({ kind: "spool", slot: 3 });
+    p.setPin(1, null);
+    await settle();
+    expect(store.log).toEqual(["paint", "paint"]);
+    a.dispose();
+  });
+
   it("never writes while a stroke is open, and saves once it closes", async () => {
     const store = memoryStore();
     const saver = new ProjectSaver(store);

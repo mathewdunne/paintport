@@ -27,6 +27,13 @@ export type ProjectEvent =
    */
   | { kind: "palette"; renumbered: boolean; changed: number[] }
   /**
+   * The mapping pins changed (`project.mapping` is a new map): `setPin`, or a color delete
+   * (or its undo/redo) that dropped, restored or renumbered pins. Re-resolve the mapping
+   * (the Export tab, the Print view's color table). Not an undo step: no `history` event
+   * comes with a `setPin`, but the autosave counts it as a change.
+   */
+  | { kind: "mapping" }
+  /**
    * The undo history or the stroke state changed (`canUndo`, `canRedo`, `strokeOpen`):
    * refresh toolbar buttons and schedule an autosave.
    */

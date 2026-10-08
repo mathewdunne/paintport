@@ -7,11 +7,16 @@
 // only the paint half (palette, per-triangle states, preserved trees, base colors) is
 // rewritten on each save. Both halves carry the project id and a hash of the geometry, and
 // a restore refuses halves that do not belong together.
+//
+// Optional fields (the paint half's `mapping` pins, the geometry half's `source.name`) were added
+// without a version bump: snapshots written before them have no such field and restore as is, and
+// a bump would make every existing autosave unreadable ("another version") for no gain.
 import type { Filament, PaintDialect, SourceIdentity, VolumeType } from "../core";
 import { BASE_SLOT } from "./designImport";
 import { DocError } from "./errors";
 import { hashGeometry } from "./geometryHash";
 import { inspectTree, isSplitTree } from "./paintTree";
+import { clonePin, pinProblem, type MappingPin } from "./pins";
 import { Project } from "./project";
 import type { PaintField, State } from "./paintField";
 import { TrianglePaintField } from "./trianglePaintField";
@@ -49,7 +54,7 @@ export interface GeometrySnapshot {
   geometryHash: string;
   objects: GeometryObject[];
   /** What phase 3 export needs from the source file. */
-  source: { paintDialect: PaintDialect; sourceIdentity: SourceIdentity | null; filaments: Filament[] };
+  source: { paintDialect: PaintDialect; sourceIdentity: SourceIdentity | null; filaments: Filament[]; name?: string };
 }
 
 export interface PaintObject {
@@ -71,6 +76,8 @@ export interface PaintSnapshot {
   /** Design colors for states 1..k (state 0, the base slot, is implicit). */
   palette: { color: string; known: boolean; mix?: { extruder: number; ratio: number }[] }[];
   objects: PaintObject[];
+  /** Mapping pins as [design state, pin], ascending by state. Absent when there are none (and in older snapshots). */
+  mapping?: [State, MappingPin][];
 }
 
 export interface ProjectSnapshot {
@@ -99,12 +106,15 @@ export function toGeometrySnapshot(project: Project): GeometrySnapshot {
       paintDialect: project.source.paintDialect,
       sourceIdentity: project.source.sourceIdentity ? structuredClone(project.source.sourceIdentity) : null,
       filaments: project.source.filaments.map((f) => ({ ...f, ...(f.mix ? { mix: copyMix(f.mix) } : {}) })),
+      ...(project.source.name !== undefined ? { name: project.source.name } : {}),
     },
   };
 }
 
 /** The mutable half. Everything in it is copied, so it stays valid while editing goes on. Canonical: equal states give equal snapshots. */
 export function toPaintSnapshot(project: Project): PaintSnapshot {
+  // Pins of states beyond the palette cannot be restored; the project prunes them, this is the safety net.
+  const pins = [...project.mapping].filter(([state]) => state >= 1 && state < project.palette.length).sort((a, b) => a[0] - b[0]).map(([state, pin]): [State, MappingPin] => [state, clonePin(pin)]);
   return {
     format: PAINT_FORMAT,
     version: SNAPSHOT_VERSION,
@@ -122,6 +132,7 @@ export function toPaintSnapshot(project: Project): PaintSnapshot {
         partBases: object.parts.map((p) => project.baseColor.get(p.id) ?? 0),
       };
     }),
+    ...(pins.length ? { mapping: pins } : {}),
   };
 }
 
@@ -182,6 +193,7 @@ function checkGeometry(raw: unknown): GeometrySnapshot {
   });
   const s = g.source;
   if (!isRec(s) || (s.paintDialect !== "prusa" && s.paintDialect !== "bbs") || !(s.sourceIdentity === null || isRec(s.sourceIdentity)) || !Array.isArray(s.filaments)) throw invalid("source info");
+  if (s.name !== undefined && !isStr(s.name)) throw invalid("source name");
   for (const f of s.filaments as unknown[]) {
     if (!isRec(f) || !isInt(f.index) || !isStr(f.color) || typeof f.colorKnown !== "boolean"
       || !isNum(f.paintedTris) || !isNum(f.baseTris) || !isNum(f.paintedShare) || !isNum(f.baseShare) || !isNum(f.isDefaultOf)) throw invalid("filament");
@@ -234,6 +246,17 @@ function checkPaint(raw: unknown, geometry: GeometrySnapshot, paintable: Uint8Ar
       if (!isCount(base) || base > colors || hasBaseColor(part.type) !== (base > 0)) throw invalid(`${where} part base color`);
     });
   });
+  if (p.mapping !== undefined) {
+    if (!Array.isArray(p.mapping)) throw invalid("mapping");
+    let previous = 0;
+    for (const entry of p.mapping as unknown[]) {
+      if (!Array.isArray(entry) || entry.length !== 2) throw invalid("mapping entry");
+      const [state, pin] = entry as [unknown, unknown];
+      if (!isInt(state) || state <= previous || state > colors) throw invalid("mapping state");
+      if (pinProblem(pin) !== null) throw invalid("mapping pin");
+      previous = state;
+    }
+  }
   return p as unknown as PaintSnapshot;
 }
 
@@ -273,7 +296,8 @@ export function fromSnapshot(snapshot: unknown): Project {
       fields.push(new TrianglePaintField(mesh, masks[index], { states: po.states, preserved }));
       return { index, name: o.name, printable: o.printable, transform: o.transform, fileExtruder: o.fileExtruder, triCount, parts, triPart, paintable: masks[index], mesh };
     });
-    return new Project({ palette, objects, fields, baseColor, source: geometry.source, projectId: geometry.projectId });
+    const mapping = new Map<State, MappingPin>((paint.mapping ?? []).map(([state, pin]) => [state, clonePin(pin)]));
+    return new Project({ palette, objects, fields, baseColor, source: geometry.source, mapping, projectId: geometry.projectId });
   } catch (e) {
     if (e instanceof DocError) throw e;
     throw invalid(e instanceof Error ? e.message : String(e)); // anything unforeseen in hostile data is still just "invalid"

@@ -8,17 +8,21 @@ import { shellFill, smartFill } from "./fill";
 import { hashGeometry, newProjectId } from "./geometryHash";
 import { MeshTopology } from "./meshTopology";
 import type { BrushOpts, EditRecord, PaintField, PaintFieldView, State, Vec3 } from "./paintField";
+import { clonePin, dropPinState, pinProblem, prunePins, restorePinState, samePin, type MappingPin } from "./pins";
 import type { ColorUsage, DesignColor, PartId, ProjectObject } from "./types";
 
 // Document types live in types.ts; re-exported so existing imports from "./project" work.
 export { NO_PART, partId } from "./types";
 export type { ColorUsage, DesignColor, PartId, ProjectObject, ProjectPart } from "./types";
+export type { MappingPin } from "./pins";
 
 /** Where the project came from, kept for the phase 3 export. */
 export interface SourceInfo {
   paintDialect: PaintDialect;
   sourceIdentity: SourceIdentity | null;
   filaments: Filament[];
+  /** Base name of the imported file (no extension), for the export file name. Absent for sessions saved before it existed. */
+  name?: string;
 }
 
 /** Default number of undo steps kept (spec section 3). */
@@ -43,6 +47,8 @@ export interface ProjectInit extends ProjectOptions {
   /** Base design state per part that has one (ModelParts and ParameterModifiers). */
   baseColor: ReadonlyMap<PartId, State>;
   source: SourceInfo;
+  /** Mapping pins by design state (spec 3.2). The caller has validated them. None when omitted. */
+  mapping?: ReadonlyMap<State, MappingPin>;
   /** Identity of the project, shared by its autosave halves. Generated when omitted. */
   projectId?: string;
 }
@@ -52,8 +58,20 @@ type Edit =
   | { kind: "paint"; object: number; rec: EditRecord }
   | { kind: "renumber"; object: number; rec: EditRecord }
   /** Palette and/or base-color replacement: immutable [before, after] values, so no copying. */
-  | { kind: "meta"; palette?: [readonly DesignColor[], readonly DesignColor[]]; base?: [ReadonlyMap<PartId, State>, ReadonlyMap<PartId, State>] }
+  | { kind: "meta"; palette?: [readonly DesignColor[], readonly DesignColor[]]; base?: [ReadonlyMap<PartId, State>, ReadonlyMap<PartId, State>]; drops?: PinDrop[] }
   | { kind: "compound"; edits: Edit[] };
+
+/**
+ * A color deletion's effect on the pins, which are not part of the history otherwise: redo drops
+ * the deleted state's pin and moves the higher pins down; undo moves them up again and brings
+ * the dropped pin back. Pins set or changed in between are kept (they move with their states).
+ * Known limit: the recorded pin is the one at deletion time. If the user re-pins that state
+ * between an undo and the next redo, the following undo restores the recorded pin, not the newer one.
+ */
+interface PinDrop {
+  state: State;
+  pin: MappingPin | undefined;
+}
 
 interface Step {
   edit: Edit;
@@ -67,8 +85,9 @@ interface Effects {
   palette: boolean;
   changed: Set<number>;
   renumbered: boolean;
+  mapping: boolean;
 }
-const noEffects = (): Effects => ({ paint: [], base: new Map(), palette: false, changed: new Set(), renumbered: false });
+const noEffects = (): Effects => ({ paint: [], base: new Map(), palette: false, changed: new Set(), renumbered: false, mapping: false });
 
 const sameEntry = (a: DesignColor, b: DesignColor): boolean =>
   a === b || (a.color === b.color && a.known === b.known
@@ -114,6 +133,7 @@ export class Project {
   private readonly editable: readonly PaintField[];
   private _palette: readonly DesignColor[];
   private _base: ReadonlyMap<PartId, State>;
+  private _pins: ReadonlyMap<State, MappingPin>;
   private _version = 0;
   private hash: string | null = null;
   private readonly listeners = new Set<ProjectListener>();
@@ -135,6 +155,7 @@ export class Project {
     this.id = init.projectId ?? newProjectId();
     this._palette = init.palette;
     this._base = init.baseColor;
+    this._pins = init.mapping ?? new Map();
     this.undoLimit = init.undoLimit ?? DEFAULT_UNDO_LIMIT;
     this.undoByteLimit = init.undoByteLimit ?? DEFAULT_UNDO_BYTE_LIMIT;
     this.topologies = init.objects.map(() => null);
@@ -150,6 +171,15 @@ export class Project {
   /** Base design state per part that has one (`partId`). A new map whenever a base color changes. */
   get baseColor(): ReadonlyMap<PartId, State> {
     return this._base;
+  }
+
+  /**
+   * Mapping pins by design state: the design colors fixed to a spool slot or a blend recipe;
+   * every other used color is Auto. A new map whenever a pin changes. Not part of the undo
+   * history (see `setPin`).
+   */
+  get mapping(): ReadonlyMap<State, MappingPin> {
+    return this._pins;
   }
 
   /** Counts every change (edits, undo, redo, history changes). A cheap change token, e.g. for useSyncExternalStore. */
@@ -318,6 +348,10 @@ export class Project {
    * A color that is some part's (or modifier's) base color cannot merge into base, since
    * that part would have no color: this throws `BASE_IN_USE`. Check `isBaseColor(state)`
    * first and ask for a concrete target. With a concrete target, those bases move to it.
+   *
+   * The color's mapping pin is dropped and the pins of the higher colors follow their
+   * states; undo brings the dropped pin back and moves the others up again, redo drops it
+   * again (a `mapping` event announces each of these when a pin was involved).
    */
   deleteColor(state: State, mergeInto: State): void {
     const size = this._palette.length;
@@ -345,11 +379,12 @@ export class Project {
     const base = new Map<PartId, State>();
     for (const [id, s] of this._base) base.set(id, forward[s === state ? mergeInto : s]);
     const palette = this._palette.filter((_, s) => s !== state);
-    const meta: Edit = { kind: "meta", palette: [this._palette, palette], base: [this._base, base] };
-    this.apply(meta, "redo", noEffects());
+    const meta: Edit = { kind: "meta", palette: [this._palette, palette], base: [this._base, base], drops: [{ state, pin: this._pins.get(state) }] };
+    const fx = noEffects();
+    this.apply(meta, "redo", fx);
     edits.push(meta);
     if (this.group) this.strokePalette = this._palette; // indices changed: "unchanged" is now relative to this palette
-    this.commit(edits.length === 1 ? edits[0] : { kind: "compound", edits }, [{ kind: "palette", renumbered: true, changed: [] }]);
+    this.commit(edits.length === 1 ? edits[0] : { kind: "compound", edits }, [{ kind: "palette", renumbered: true, changed: [] }, ...(fx.mapping ? [{ kind: "mapping" } as const] : [])]);
   }
 
   // --- base colors ---------------------------------------------------------------
@@ -375,6 +410,32 @@ export class Project {
     }
     if (!changed) return false;
     this.commitMeta({ kind: "meta", base: [this._base, next] });
+    return true;
+  }
+
+  // --- mapping pins --------------------------------------------------------------
+
+  /**
+   * Pins design color `state` to a spool slot or a blend recipe (see `MappingPin`), or
+   * returns it to Auto with `null`. Throws `STATE_RANGE` for a state outside the palette and
+   * `PIN_INVALID` for a malformed pin. Returns false (and emits nothing) if nothing changed.
+   *
+   * Pins are mapping settings, not paint: this is not an undo step and emits only a
+   * `mapping` event. Deleting a color drops its pin, and undoing that delete brings the pin
+   * back (see `deleteColor`).
+   */
+  setPin(state: State, pin: MappingPin | null): boolean {
+    this.checkState(state, false);
+    if (pin !== null) {
+      const problem = pinProblem(pin);
+      if (problem) throw new DocError("PIN_INVALID", `Invalid mapping pin: ${problem}`);
+    }
+    const current = this._pins.get(state);
+    if (pin === null ? current === undefined : current !== undefined && samePin(current, pin)) return false;
+    const next = new Map(this._pins);
+    if (pin === null) next.delete(state); else next.set(state, clonePin(pin));
+    this._pins = next;
+    this.emit({ kind: "mapping" });
     return true;
   }
 
@@ -511,7 +572,7 @@ export class Project {
       case "renumber":
         return edit.rec.bytes;
       case "meta":
-        return 160 + (edit.palette ? (edit.palette[0].length + edit.palette[1].length) * 16 : 0) + (edit.base ? (edit.base[0].size + edit.base[1].size) * 56 : 0);
+        return 160 + (edit.palette ? (edit.palette[0].length + edit.palette[1].length) * 16 : 0) + (edit.base ? (edit.base[0].size + edit.base[1].size) * 56 : 0) + (edit.drops ? edit.drops.length * 96 : 0);
       case "compound":
         return edit.edits.reduce((n, e) => n + this.editBytes(e), 64);
     }
@@ -548,6 +609,7 @@ export class Project {
             kind: "meta",
             palette: merged.palette && next.palette ? [merged.palette[0], next.palette[1]] : merged.palette ?? next.palette,
             base: merged.base && next.base ? [merged.base[0], next.base[1]] : merged.base ?? next.base,
+            drops: merged.drops || next.drops ? [...(merged.drops ?? []), ...(next.drops ?? [])] : undefined,
           };
           j++;
         }
@@ -555,7 +617,9 @@ export class Project {
         // current one (later edits of the stroke may have replaced it, and they must win).
         if (merged.palette && samePalette(merged.palette[0], merged.palette[1])) {
           if (this._palette === merged.palette[1]) this._palette = merged.palette[0];
-          merged = { ...merged, palette: undefined };
+          // The palette ended where it began, so the step has no palette change to pair the pin drops with.
+          // Pins dropped meanwhile stay dropped (pins are not undoable).
+          merged = { ...merged, palette: undefined, drops: undefined };
         }
         if (merged.base && sameBase(merged.base[0], merged.base[1])) {
           if (this._base === merged.base[1]) this._base = merged.base[0];
@@ -587,6 +651,19 @@ export class Project {
           fx.palette = true;
           for (const s of changedStates(before, this._palette)) fx.changed.add(s);
         }
+        if (edit.drops) {
+          const before = this._pins;
+          if (undo) for (const d of [...edit.drops].reverse()) this._pins = restorePinState(this._pins, d.state, d.pin);
+          else for (const d of edit.drops) this._pins = dropPinState(this._pins, d.state);
+          if (this._pins !== before) fx.mapping = true;
+        }
+        if (edit.palette) {
+          // A palette that shrank (undo of addColor, redo of a delete) leaves no state for pins above it. They are
+          // not brought back when the palette grows again: the color that returns is a fresh one.
+          const before = this._pins;
+          this._pins = prunePins(this._pins, this._palette.length);
+          if (this._pins !== before) fx.mapping = true;
+        }
         if (edit.base) {
           const before = this._base;
           this._base = edit.base[undo ? 0 : 1];
@@ -606,11 +683,14 @@ export class Project {
   }
 
   private eventsOf(fx: Effects): ProjectEvent[] {
-    if (fx.renumbered) return [{ kind: "palette", renumbered: true, changed: [] }];
     const events: ProjectEvent[] = [];
-    if (fx.palette) events.push({ kind: "palette", renumbered: false, changed: [...fx.changed].sort((a, b) => a - b) });
-    for (const p of fx.paint) events.push({ kind: "paint", object: p.object, tris: p.tris });
-    for (const [object, parts] of fx.base) events.push({ kind: "base", object, parts: [...new Set(parts)] });
+    if (fx.renumbered) events.push({ kind: "palette", renumbered: true, changed: [] });
+    else {
+      if (fx.palette) events.push({ kind: "palette", renumbered: false, changed: [...fx.changed].sort((a, b) => a - b) });
+      for (const p of fx.paint) events.push({ kind: "paint", object: p.object, tris: p.tris });
+      for (const [object, parts] of fx.base) events.push({ kind: "base", object, parts: [...new Set(parts)] });
+    }
+    if (fx.mapping) events.push({ kind: "mapping" });
     return events;
   }
 
@@ -631,19 +711,25 @@ export class Project {
   }
 }
 
+export interface CreateProjectOptions extends ProjectOptions {
+  /** Base name of the imported file, without extension (kept in `source.name`). */
+  name?: string;
+}
+
 /**
  * Builds the document from an imported model. The design palette holds only colors that
  * are used (see `importDesign`); colors the file did not define are generated and marked
  * `known: false`.
  */
-export function createProject(model: Model, options: ProjectOptions = {}): Project {
+export function createProject(model: Model, options: CreateProjectOptions = {}): Project {
+  const { name, ...projectOptions } = options;
   const { palette, objects, fields, baseColor } = importDesign(model);
   return new Project({
-    ...options,
+    ...projectOptions,
     palette,
     objects,
     fields,
     baseColor,
-    source: { paintDialect: model.paintDialect, sourceIdentity: model.sourceIdentity, filaments: model.filaments },
+    source: { paintDialect: model.paintDialect, sourceIdentity: model.sourceIdentity, filaments: model.filaments, ...(name ? { name } : {}) },
   });
 }
