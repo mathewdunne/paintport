@@ -331,3 +331,44 @@ describe("bbs export assertions", () => {
     }
   });
 });
+
+describe("part subtype lookup ignores prototype keys (volume-types fix)", () => {
+  // The classic tool looked subtypes up in a plain object, so "constructor" & co. came back as
+  // a function/object and the part turned into a bogus volume type. They now behave like any
+  // unknown subtype: a ModelPart.
+  const archive = async (subtype: string) => {
+    const verts = '<vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/></vertices>';
+    const mesh = (id: number) => `<object id="${id}" type="model"><mesh>${verts}<triangles><triangle v1="0" v2="1" v3="2" paint_color="4"/></triangles></mesh></object>`;
+    const main = `<?xml version="1.0"?><model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>${mesh(11)}${mesh(12)}<object id="10" type="model"><components><component objectid="11"/><component objectid="12"/></components></object></resources><build><item objectid="10"/></build></model>`;
+    const settings = `<config><object id="10"><metadata key="name" value="Assembly"/><part id="11" subtype="normal_part"></part><part id="12" subtype="${subtype}"></part></object></config>`;
+    return zipAll([
+      { name: "3D/3dmodel.model", data: enc.encode(main) },
+      { name: "Metadata/model_settings.config", data: enc.encode(settings) },
+    ]);
+  };
+
+  it.each(["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"])("subtype %s loads as ModelPart, like an unknown subtype", async (subtype) => {
+    const m = await load3MF(await archive(subtype));
+    expect(m.objects[0].parts.map((p) => p.type)).toEqual(["ModelPart", "ModelPart"]);
+    expect(m.specialVolumes).toBe(0);
+    expect(m.totalTris).toBe(2);
+    const unknown = await load3MF(await archive("not_a_real_subtype"));
+    expect(m).toEqual(unknown);
+  });
+
+  it("a Prusa export of such a part writes a valid volume_type", async () => {
+    const m = await load3MF(await archive("constructor"));
+    const built = build3MF(m, { ...plan("prusa", [[1, 1]]) });
+    const cfg = entry(built, "Metadata/Slic3r_PE_model.config") as string;
+    const types = [...cfg.matchAll(/key="volume_type" value="([^"]*)"/g)].map((x) => x[1]);
+    expect(types.length).toBeGreaterThan(0);
+    expect(types.every((t) => ["ModelPart", "NegativeVolume", "ParameterModifier", "SupportBlocker", "SupportEnforcer"].includes(t))).toBe(true);
+    expect(cfg).not.toMatch(/native code|\[object/);
+  });
+
+  it("real subtypes still map to their volume types", async () => {
+    const m = await load3MF(await archive("negative_part"));
+    expect(m.objects[0].parts.map((p) => p.type)).toEqual(["ModelPart", "NegativeVolume"]);
+    expect(m.specialVolumes).toBe(1);
+  });
+});

@@ -94,7 +94,7 @@ export function genZipEntries(rng: Rng): { name: string; data: Uint8Array }[] {
 // ---------- 3MF archives ----------
 const NS = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"';
 const NAMES = ["Figure", "Fig<ure>", "A&B", "Ünï cödé", "Obj 1", "Base plate", "x'y", "", "Part (2)"];
-const SUBTYPES = ["normal_part", "normal_part", "negative_part", "modifier_part", "support_blocker", "support_enforcer", "mystery", "constructor", undefined];
+const SUBTYPES = ["normal_part", "normal_part", "negative_part", "modifier_part", "support_blocker", "support_enforcer", "mystery", "constructor", "toString", "__proto__", undefined];
 
 type MeshDialect = "prusa" | "bbs" | "mixed" | "none";
 

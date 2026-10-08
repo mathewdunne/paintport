@@ -7,17 +7,24 @@ import { applyTransform, composeTransform, parseTransform, type Transform } from
 import { parseAttrs, parseModelXML, type ParsedModelXml, type XmlMeshObject } from "./xml";
 
 // Bambu part subtype -> PrusaSlicer volume_type (strings as ModelVolume::type_to_string
-// writes them). Deliberately a plain object: unknown subtypes fall back to "ModelPart".
-// FIXME(volume-types): prototype keys such as "constructor" or "toString" leak through this
-// plain-object lookup (VOLUME_TYPES[subtype]) and end up as a non-string `type`. Kept as is
-// for parity with the classic tool; fixed separately.
-export const VOLUME_TYPES: Record<string, VolumeType> = {
+// writes them). Look subtypes up with volumeTypeOf(): a plain `VOLUME_TYPES[subtype]` would
+// also find inherited keys such as "constructor".
+export const VOLUME_TYPES: Readonly<Record<string, VolumeType | undefined>> = {
   normal_part: "ModelPart",
   negative_part: "NegativeVolume",
   modifier_part: "ParameterModifier",
   support_blocker: "SupportBlocker",
   support_enforcer: "SupportEnforcer",
 };
+
+/**
+ * Volume type for a Bambu part subtype. Unknown or absent subtypes - including names that
+ * only exist on Object.prototype ("constructor", "toString", "__proto__") - are ModelParts.
+ * (The classic tool let prototype keys through as non-string types; this is a deliberate fix.)
+ */
+function volumeTypeOf(subtype: string | undefined): VolumeType {
+  return (subtype !== undefined && Object.hasOwn(VOLUME_TYPES, subtype) ? VOLUME_TYPES[subtype] : undefined) || "ModelPart";
+}
 
 /** Per-part data from Bambu's model_settings.config. */
 interface PartMeta {
@@ -113,7 +120,7 @@ export async function load3MF(bytes: Uint8Array): Promise<Model> {
         const pn = /<metadata\s+key="name"\s+value="([^"]*)"/.exec(pp[2]);
         meta.parts.set(pa.id, {
           extruder: pe ? Math.max(1, parseInt(pe[1], 10) || 1) : null,
-          type: (pa.subtype !== undefined ? VOLUME_TYPES[pa.subtype] : undefined) || "ModelPart",
+          type: volumeTypeOf(pa.subtype),
           name: pn ? pn[1] : null,
           firstid: pa.firstid !== undefined ? parseInt(pa.firstid, 10) : null,
           lastid: pa.lastid !== undefined ? parseInt(pa.lastid, 10) : null,

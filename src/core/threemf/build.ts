@@ -11,7 +11,7 @@ function xmlEscape(s: unknown): string {
 // PrusaSlicer volume_type -> bbs subtype. The bbs slicers' ModelVolume::type_from_string
 // knows ONLY these strings; Prusa names silently fall back to normal_part there, so a
 // NegativeVolume would be printed solid.
-const BBS_VOLUME_TYPES: Record<string, string> = Object.fromEntries(Object.entries(VOLUME_TYPES).map(([k, v]) => [v, k]));
+const BBS_VOLUME_TYPES: Record<string, string> = Object.fromEntries(Object.entries(VOLUME_TYPES).flatMap(([k, v]) => (v ? [[v, k]] : [])));
 
 /** A run of triangles with one volume type and (mapped) base extruder. */
 interface VolumeRange {

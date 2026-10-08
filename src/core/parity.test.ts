@@ -4,7 +4,7 @@
 // the same seed to reproduce. PARITY_SCALE multiplies the number of random cases.
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { loadClassicCore } from "../../test/support/classic";
-import { assertParity, attempt, attemptAsync, norm, stats } from "../../test/support/parity";
+import { assertParity, attempt, attemptAsync, firstDiff, norm, stats } from "../../test/support/parity";
 import { makeRng, PARITY_SCALE, PARITY_SEED } from "../../test/support/prng";
 import {
   genColorInput, genHex, genNumberStr, genPlan, genScenario, genTree, genValidHex, genZipEntries,
@@ -26,6 +26,8 @@ const { core: O, internals: OI } = loadClassicCore();
 const S = PARITY_SCALE;
 // Larger PARITY_SCALE runs take proportionally longer.
 vi.setConfig({ testTimeout: 60_000 * Math.max(1, S) });
+const PROTO_SUBTYPE = /subtype="(?:constructor|toString|__proto__)"/;
+const PROTO_SUBTYPE_ALL = new RegExp(PROTO_SUBTYPE.source, "g");
 const DIALECTS: (PaintDialect | undefined)[] = ["prusa", "bbs", undefined];
 const coverage: Record<string, number> = {};
 const bump = (k: string, n = 1) => { coverage[k] = (coverage[k] ?? 0) + n; };
@@ -325,9 +327,43 @@ describe("3MF load/build parity", () => {
     for (let i = 0; i < N; i++) {
       const sc = genScenario(rng, O);
       const bytes = await O.zipAll(sc.files);
-      const lo = await attemptAsync(() => O.load3MF(bytes));
+      // INTENDED DIVERGENCE (volume-types fix): for a part subtype that is a prototype key
+      // ("constructor", "toString", "__proto__") the original yields a non-string volume type,
+      // the port treats it like any unknown subtype (ModelPart). To keep everything else under
+      // strict equality, the original is fed an archive in which those subtypes are replaced by
+      // an unknown one ("mystery"), which the original already maps to ModelPart. The raw
+      // archive is additionally checked below.
+      const settingsFile = sc.files.find((f) => f.name === "Metadata/model_settings.config");
+      const settingsText = settingsFile ? new TextDecoder().decode(settingsFile.data) : "";
+      const hasProto = PROTO_SUBTYPE.test(settingsText);
+      const classicBytes = hasProto
+        ? await O.zipAll(sc.files.map((f) => (f === settingsFile
+          ? { name: f.name, data: new TextEncoder().encode(settingsText.replace(PROTO_SUBTYPE_ALL, 'subtype="mystery"')) }
+          : f)))
+        : bytes;
+      const lo = await attemptAsync(() => O.load3MF(classicBytes));
       const lp = await attemptAsync(() => load3MF(bytes));
-      assertParity("load3MF", `#${i} ${sc.label}`, lo, lp);
+      assertParity("load3MF", `#${i} ${sc.label}${hasProto ? " (proto subtype normalized for classic)" : ""}`, lo, lp);
+      if ("ok" in lp) {
+        const types = new Set(Object.values(VOLUME_TYPES));
+        for (const o of lp.ok.objects) for (const part of o.parts) expect(types.has(part.type), `part type ${String(part.type)}`).toBe(true);
+      }
+      if (hasProto) {
+        bump("archives with prototype-key subtypes");
+        const raw = await attemptAsync(() => O.load3MF(bytes));
+        // The raw original may differ from its normalized self only through the leak: either
+        // the model carries a non-string part type, or (leaked parts skip the statistics pass)
+        // a different paint string is the first to fail.
+        if (firstDiff(norm(raw), norm(lo)) === null) {
+          bump("... of which unaffected");
+        } else {
+          const leaks = "ok" in raw && raw.ok.objects.some((o) => o.parts.some((part) => typeof part.type !== "string"));
+          const code = (r: typeof raw) => ("threw" in r ? (r.threw as { code?: string }).code ?? "" : "");
+          const paintErrors = "threw" in raw && "threw" in lo && code(raw).startsWith("ERR_PAINT_") && code(lo).startsWith("ERR_PAINT_");
+          expect(leaks || paintErrors, `#${i} ${sc.label}: unexplained divergence`).toBe(true);
+          bump(leaks ? "... of which the original leaks a non-string type" : "... of which a leaked part hides an earlier paint error");
+        }
+      }
       if (!("ok" in lo) || !("ok" in lp)) {
         loadErr++;
         const code = (("threw" in lo ? lo.threw : null) as { code?: string } | null)?.code ?? "other";
@@ -393,6 +429,8 @@ describe("3MF load/build parity", () => {
     need("builds with full_spectrum.json", N / 20);
     need("builds with MmPaintingVersion 2", 1);
     need("build error: ERR_BBS_NO_MIX", 1);
+    need("archives with prototype-key subtypes", 5);
+    need("... of which the original leaks a non-string type", 1);
   }, 600_000);
 
   it("deterministic error paths throw the same codes", async () => {
