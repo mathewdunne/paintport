@@ -1,16 +1,118 @@
-import { Box } from "lucide-react";
+import { useRef, useState, type DragEvent } from "react";
+import { Box, Info, Loader2, X } from "lucide-react";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
+import { ModelCanvas } from "./ModelCanvas";
 
-export function Viewport() {
+const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
+
+interface ViewportProps {
+  project: Project | null;
+  loading: boolean;
+  error: string | null;
+  /** Neutral message, e.g. that extra dropped files were ignored. */
+  notice: string | null;
+  onDismissError: () => void;
+  onDismissNotice: () => void;
+  onImportFiles: (files: ArrayLike<File>) => void;
+}
+
+export function Viewport({ project, loading, error, notice, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
+  const [dragging, setDragging] = useState(false);
+  const [viewerFailed, setViewerFailed] = useState(false);
+  const depth = useRef(0); // dragenter/dragleave also fire for children
+
+  const onDragEnter = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth.current++;
+    setDragging(true);
+  };
+  const onDragLeave = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    if (--depth.current <= 0) {
+      depth.current = 0;
+      setDragging(false);
+    }
+  };
+  const onDragOver = (e: DragEvent) => {
+    if (hasFiles(e)) e.preventDefault(); // allow the drop
+  };
+  const onDrop = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth.current = 0;
+    setDragging(false);
+    onImportFiles(e.dataTransfer.files);
+  };
+
   return (
-    <main className="relative min-w-0 flex-1 overflow-hidden bg-muted/40">
-      {/* The three.js canvas mounts here later. */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-        <Box className="size-8 opacity-60" strokeWidth={1.5} />
-        <p className="text-sm font-medium">{strings.viewport.emptyTitle}</p>
-        <p className="text-xs">{strings.viewport.emptyHint}</p>
-      </div>
+    <main
+      className="relative min-w-0 flex-1 overflow-hidden bg-muted/40"
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      <ModelCanvas project={project} onFailed={() => setViewerFailed(true)} />
+
+      {!project && !loading && !viewerFailed && (
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+          <Box className="size-8 opacity-60" strokeWidth={1.5} />
+          <p className="text-sm font-medium">{strings.viewport.emptyTitle}</p>
+          <p className="text-xs">{strings.viewport.emptyHint}</p>
+        </div>
+      )}
+
+      {viewerFailed && (
+        <p className="absolute inset-0 flex items-center justify-center bg-muted p-6 text-center text-sm text-muted-foreground">
+          {strings.viewport.viewerFailed}
+        </p>
+      )}
+
+      {loading && (
+        <div
+          role="status"
+          className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm shadow-sm"
+        >
+          <Loader2 className="size-4 animate-spin" />
+          {strings.viewport.loading}
+        </div>
+      )}
+
+      {error && (
+        <Alert variant="destructive" className="absolute top-3 left-1/2 w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 shadow-sm">
+          <AlertTitle>{strings.errors.title}</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+          <AlertAction>
+            <Button variant="ghost" size="icon-xs" onClick={onDismissError} aria-label={strings.errors.dismiss}>
+              <X />
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
+
+      {notice && !error && !loading && (
+        <Alert className="absolute top-3 left-1/2 w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 shadow-sm">
+          <Info />
+          <AlertDescription>{notice}</AlertDescription>
+          <AlertAction>
+            <Button variant="ghost" size="icon-xs" onClick={onDismissNotice} aria-label={strings.errors.dismiss}>
+              <X />
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
+
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-primary/5 text-sm font-medium">
+          {strings.viewport.dropHint}
+        </div>
+      )}
+
       {/* Placeholder: Design/Print switching is wired up in phase 3. */}
       <div className="absolute inset-x-0 bottom-4 flex justify-center">
         <ToggleGroup

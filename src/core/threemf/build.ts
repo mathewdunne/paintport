@@ -222,7 +222,7 @@ export function build3MF(model: Model, plan: Build3MFPlan): Build3MFResult {
         ? co.ranges.map((r, k) => ({ pid: childIds[k], r }))
         : [{ pid: co.id, r: { type: "ModelPart", extruder: firstPart ? firstPart.extruder : 0, name: null } }];
       for (const { pid, r } of partDefs) {
-        cfg.push(`  <part id="${pid}" subtype="${BBS_VOLUME_TYPES[r.type] || "normal_part"}">\n`);
+        cfg.push(`  <part id="${pid}" subtype="${Object.hasOwn(BBS_VOLUME_TYPES, r.type) ? BBS_VOLUME_TYPES[r.type] : "normal_part"}">\n`);
         cfg.push(`   <metadata key="name" value="${xmlEscape(r.type === "ModelPart" ? co.name : (r.name || co.name))}"/>\n`);
         if (r.extruder > 0) cfg.push(`   <metadata key="extruder" value="${r.extruder}"/>\n`);
         cfg.push('   <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n');
