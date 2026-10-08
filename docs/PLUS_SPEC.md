@@ -1,6 +1,6 @@
 # PaintPort+ — plan & spec
 
-Status: **phase 1 done; phase 2 in progress.** The decisions below came from five
+Status: **phases 1–2 done; phase 3 in progress.** The decisions below came from five
 question waves with the user (IDs like Q2.1 refer to section 7). Items marked
 _default_ are my calls on things we didn't discuss; push back on any of them.
 
@@ -307,6 +307,61 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
    hints (`mix` on palette entries, from phase 2.0) should pre-fill the mapping when the
    user's spools match the file's physical extruders. Once this phase is done,
    `/classic/` can be retired (user's call).
+
+   Decisions (Q8.1–Q8.4) and design, in three gated steps:
+   - **3.1 Viewer: state attribute + palette texture.** Each rendered vertex carries the
+     triangle's *resolved* display state (paint state, or the part's base state when
+     unpainted) as an integer attribute; the fragment color comes from a small palette
+     data texture (sRGB bytes, linearized in the shader as today). Palette edits upload the
+     texture only; base-color changes rewrite only that part's unpainted ranges. The view
+     shows one of two color tables: Design (the palette) or Print (each state's mapped
+     spool or predicted blend color; unmapped states keep the design color).
+   - **3.2 Mapping, export and sidecar (DOM-free).**
+     - *Spools* are app settings, not project data (persisted in `localStorage` like the
+       classic `paintport_slots`): 16 slots `{color, on}` shared by all targets, plus an
+       extruder count per target (defaults Prusa 8, Bambu 16, Snapmaker 4), the chosen
+       target and "Allow ColorMix" (default on). Presets and slot reorder carry over
+       from classic.
+     - *Mapping* (Q8.1): every design color is **Auto** unless pinned. Auto resolves live
+       with `bestOption` (nearest spool vs. best blend by ΔE; a tie keeps the spool), so it
+       follows color and spool edits. A pin is a spool slot or a blend recipe
+       (`slot×ratio` components) and sticks; a pin whose slot is off/out of range falls
+       back to Auto. Pins live on the Project (`mapping`), are autosaved and written to
+       the sidecar, emit a `mapping` event, and are **not** undo steps. Deleting/merging a
+       color drops its pin; renumbering moves pins with their states.
+     - *Recipe hints*: an Auto color with an imported `mix` hint resolves to that recipe
+       when every component slot is an active spool whose color equals the file's physical
+       extruder color (normalized hex). Q8.2: imported spools never overwrite the saved
+       set automatically; the Export tab offers "Use this file's spools" when the file
+       defined physical colors and they differ from the current spools.
+     - *Export*: build a core `Model` from the project (internal `bbs` dialect, design
+       states: whole triangles as one-leaf strings, untouched preserved trees verbatim;
+       part extruders = design base states) and call `build3MF` with
+       `stateMap` = design state → output extruder, exactly like classic `doExport`
+       (slot n = extruder n; virtual ids above the printer count for Prusa, above the
+       highest active slot for bbs; blends deduped by recipe). Only colors that are used
+       (painted or a part base) get mapped. Every used state must map, otherwise export
+       refuses. With "Allow ColorMix" off, export refuses if any used color resolves to a
+       blend. Bambu's 16-filament cap is warned about live and enforced by `build3MF`.
+       Warnings carry over: collisions (distinct design colors → near-identical result)
+       and "a free slot would beat this poor blend". File name as classic:
+       `<name><target suffix><_PRESET | _<n>T>.3mf`.
+     - *Design sidecar* (section 5.4) in every export. The geometry hash for the sidecar
+       is position-based (triangle count + corner coordinates in triangle order), because
+       the bbs export re-indexes vertices per component. The sidecar stores the parts
+       (`firstTri`, `triCount`, type, name, base design state) because export merges and
+       splits volume ranges; on restore they replace the imported part list when they tile
+       the triangles and agree with the imported volume types.
+     - Object and part names are XML-unescaped once, in the document import (the core's
+       `Model` keeps raw attribute text for classic parity, and `build3MF` escapes them on
+       the way out).
+   - **3.3 Export tab UI and Print toggle** (Q8.3, Q8.4): the Export tab stacks target
+     slicer + extruder count, spools (on/off, color picker, presets, reorder, "Use this
+     file's spools"), Allow ColorMix, one compact row per used design color (swatch →
+     target dropdown: Auto, each active spool, the top blend candidates, each with ΔE),
+     warnings, and the Export button. Print view is **view-only**: tools, hover preview and
+     paint shortcuts are disabled while it is on (orbit/pan/zoom still work); the Export
+     tab does not switch the view by itself.
 4. **More selection tools**: mirror painting, lasso/box (with paint through),
    select-by-color, maybe texture bake.
 5. **Sub-triangle precision**: decide between option 2 and option 3, starting with a
@@ -345,3 +400,7 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q7.1 | Unused file slots | Design palette shows only used colors |
 | Q7.2 | Color picker | Popover picker + hex |
 | Q7.3 | Reopening | Auto-restore + "New" button |
+| Q8.1 | Mapping behavior | Live Auto per color + sticky pins; saved with the project, not undoable |
+| Q8.2 | File spools | Keep saved spools; offer "Use this file's spools" |
+| Q8.3 | Print view | View-only (tools disabled); Export tab doesn't switch views |
+| Q8.4 | Export layout | Everything stacked in the Export tab |
