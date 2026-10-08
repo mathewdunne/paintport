@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
-import { Box, Info, Loader2, X } from "lucide-react";
+import { Box, Info, Loader2, TriangleAlert, X } from "lucide-react";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -8,6 +8,8 @@ import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
 import type { PaintSettings } from "@/tools/types";
 import { ModelCanvas } from "./ModelCanvas";
+import type { HiddenObjects } from "./objectVisibility";
+import type { Notice } from "./useNotices";
 import { SELECTED_TOGGLE } from "./selectedStyle";
 
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
@@ -17,16 +19,19 @@ interface ViewportProps {
   settings: PaintSettings;
   /** The eyedropper picked a design color. */
   onPickState: (state: number) => void;
-  loading: boolean;
+  /** What the app is busy with (reading a file, restoring the last session), or null. */
+  busy: string | null;
   error: string | null;
-  /** Neutral message, e.g. that extra dropped files were ignored. */
-  notice: string | null;
+  /** Hidden objects (view state). */
+  hiddenObjects: HiddenObjects;
+  /** Short messages: extra dropped files ignored, session restored, autosave trouble. */
+  notices: readonly Notice[];
   onDismissError: () => void;
-  onDismissNotice: () => void;
+  onDismissNotice: (id: number) => void;
   onImportFiles: (files: ArrayLike<File>) => void;
 }
 
-export function Viewport({ project, settings, onPickState, loading, error, notice, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
+export function Viewport({ project, settings, onPickState, busy, error, hiddenObjects, notices, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
   const [dragging, setDragging] = useState(false);
   const [viewerFailed, setViewerFailed] = useState(false);
   const depth = useRef(0); // dragenter/dragleave also fire for children
@@ -63,9 +68,9 @@ export function Viewport({ project, settings, onPickState, loading, error, notic
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <ModelCanvas project={project} settings={settings} onPickState={onPickState} onFailed={() => setViewerFailed(true)} />
+      <ModelCanvas project={project} settings={settings} hiddenObjects={hiddenObjects} onPickState={onPickState} onFailed={() => setViewerFailed(true)} />
 
-      {!project && !loading && !viewerFailed && (
+      {!project && !busy && !viewerFailed && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
           <Box className="size-8 opacity-60" strokeWidth={1.5} />
           <p className="text-sm font-medium">{strings.viewport.emptyTitle}</p>
@@ -79,39 +84,39 @@ export function Viewport({ project, settings, onPickState, loading, error, notic
         </p>
       )}
 
-      {loading && (
-        <div
-          role="status"
-          className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm shadow-sm"
-        >
-          <Loader2 className="size-4 animate-spin" />
-          {strings.viewport.loading}
-        </div>
-      )}
+      {/* One stack, so a busy indicator, an import error and the notices (restored session, other tab, autosave trouble) can all be read at once. */}
+      <div className="pointer-events-none absolute top-3 left-1/2 flex w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 flex-col items-center gap-2 *:pointer-events-auto">
+        {busy && (
+          <div role="status" className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm shadow-sm">
+            <Loader2 className="size-4 animate-spin" />
+            {busy}
+          </div>
+        )}
 
-      {error && (
-        <Alert variant="destructive" className="absolute top-3 left-1/2 w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 shadow-sm">
-          <AlertTitle>{strings.errors.title}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-          <AlertAction>
-            <Button variant="ghost" size="icon-xs" onClick={onDismissError} aria-label={strings.errors.dismiss}>
-              <X />
-            </Button>
-          </AlertAction>
-        </Alert>
-      )}
+        {error && (
+          <Alert variant="destructive" className="shadow-sm">
+            <AlertTitle>{strings.errors.title}</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+            <AlertAction>
+              <Button variant="ghost" size="icon-xs" onClick={onDismissError} aria-label={strings.errors.dismiss}>
+                <X />
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
 
-      {notice && !error && !loading && (
-        <Alert className="absolute top-3 left-1/2 w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 shadow-sm">
-          <Info />
-          <AlertDescription>{notice}</AlertDescription>
-          <AlertAction>
-            <Button variant="ghost" size="icon-xs" onClick={onDismissNotice} aria-label={strings.errors.dismiss}>
-              <X />
-            </Button>
-          </AlertAction>
-        </Alert>
-      )}
+        {notices.map((n) => (
+          <Alert key={n.id} className="shadow-sm">
+            {n.tone === "warning" ? <TriangleAlert /> : <Info />}
+            <AlertDescription>{n.text}</AlertDescription>
+            <AlertAction>
+              <Button variant="ghost" size="icon-xs" onClick={() => onDismissNotice(n.id)} aria-label={strings.errors.dismiss}>
+                <X />
+              </Button>
+            </AlertAction>
+          </Alert>
+        ))}
+      </div>
 
       {dragging && (
         <div className="pointer-events-none absolute inset-2 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-primary/5 text-sm font-medium">

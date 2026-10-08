@@ -142,9 +142,21 @@ const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFin
 const isStr = (x: unknown): x is string => typeof x === "string";
 const VOLUME_TYPE_NAMES: readonly string[] = ["ModelPart", "NegativeVolume", "ParameterModifier", "SupportBlocker", "SupportEnforcer"];
 
+/**
+ * Throws SNAPSHOT_VERSION for a half written by another version. This is looked at before the
+ * format: a newer build may rename the format along with the layout, and its data must read as
+ * "another version" (left alone), not as damaged (cleared). A record with a different numeric
+ * version, or with the expected format and no readable version, is another version.
+ */
+function checkVersion(x: unknown, format: string, what: string): void {
+  if (isRec(x) && x.version !== SNAPSHOT_VERSION && (x.format === format || typeof x.version === "number")) {
+    throw new DocError("SNAPSHOT_VERSION", `${what} version ${String(x.version)}, expected ${SNAPSHOT_VERSION}`);
+  }
+}
+
 function checkHeader(x: unknown, format: string, what: string): Rec {
+  checkVersion(x, format, what);
   if (!isRec(x) || x.format !== format) throw invalid(`${what} is not a ${format} snapshot`);
-  if (x.version !== SNAPSHOT_VERSION) throw new DocError("SNAPSHOT_VERSION", `${what} version ${String(x.version)}, expected ${SNAPSHOT_VERSION}`);
   if (!isStr(x.projectId) || !isStr(x.geometryHash) || !Array.isArray(x.objects)) throw invalid(`${what} header`);
   return x;
 }
@@ -235,6 +247,9 @@ function checkPaint(raw: unknown, geometry: GeometrySnapshot, paintable: Uint8Ar
 export function fromSnapshot(snapshot: unknown): Project {
   try {
     if (!isRec(snapshot)) throw invalid("not a project snapshot");
+    // Both versions first, so damage found in one half never hides that the other one is from another version.
+    checkVersion(snapshot.geometry, GEOMETRY_FORMAT, "geometry");
+    checkVersion(snapshot.paint, PAINT_FORMAT, "paint");
     const geometry = checkGeometry(snapshot.geometry);
     if (hashGeometry(geometry.objects) !== geometry.geometryHash) throw invalid("geometry does not match its hash");
     const masks = geometry.objects.map(paintableOf);
@@ -271,12 +286,18 @@ export function fromSnapshot(snapshot: unknown): Project {
  * Persistent storage for one autosaved project, implemented by the UI (IndexedDB). The two
  * halves are separate records (e.g. two object-store keys) so that saving paint does not
  * rewrite the geometry.
+ *
+ * Writes must not leave a mix of two projects behind: `saveBoth` replaces both halves in one
+ * atomic step, and `savePaint` must refuse (reject) when the stored geometry is not the one
+ * the paint belongs to (another tab replaced the project meanwhile).
  */
 export interface SnapshotStore {
   /** The stored halves as they were saved, or null when there are none. Not validated. */
   loadGeometry(): Promise<unknown | null>;
   loadPaint(): Promise<unknown | null>;
-  saveGeometry(snapshot: GeometrySnapshot): Promise<void>;
+  /** Replaces both halves atomically: a failure leaves the previous project, never new geometry with old paint. */
+  saveBoth(geometry: GeometrySnapshot, paint: PaintSnapshot): Promise<void>;
+  /** Replaces the paint half of the stored project. Rejects if the stored geometry belongs to another project. */
   savePaint(snapshot: PaintSnapshot): Promise<void>;
   /** Removes both halves. */
   clear(): Promise<void>;
@@ -286,7 +307,7 @@ export type RestoreResult =
   | { status: "restored"; project: Project }
   /** Nothing is stored. */
   | { status: "empty" }
-  /** Stored data is damaged or inconsistent; it has been cleared. */
+  /** Stored data is damaged or inconsistent. It is left in the store (it may be recoverable by hand or by a fixed build); the next save of a new project replaces it. */
   | { status: "invalid"; message: string }
   /** Stored by a different format version (maybe another, newer build of the app). It is left in the store so the UI can decide. */
   | { status: "version"; message: string };
@@ -300,19 +321,24 @@ export async function restoreProject(store: SnapshotStore): Promise<RestoreResul
   } catch (e) {
     if (!(e instanceof DocError)) throw e;
     if (e.code === "SNAPSHOT_VERSION") return { status: "version", message: e.message };
-    await store.clear();
     return { status: "invalid", message: e.message };
   }
 }
 
 /**
- * Saves a project to a store, writing the geometry only when the stored one is not this
- * project's. Saves are serialized, so overlapping calls cannot interleave their writes
- * (geometry always lands before the paint that refers to it).
+ * Saves a project to a store, writing the geometry (together with the paint) only when the
+ * stored one is not this project's. Saves are serialized, so overlapping calls cannot interleave their writes
+ * (the geometry always lands with or before the paint that refers to it).
+ *
+ * `reset` and `clear` end the saver's interest in the project it was saving (a new import,
+ * "New"): saves still queued, or between their two writes, are dropped, so a stale paint
+ * half can never be written after the store was cleared or its geometry replaced.
  */
 export class ProjectSaver {
   private storedProject: string | null = null;
   private chain: Promise<void> = Promise.resolve();
+  /** Bumped by `reset`/`clear`: a save that began under an older value stops before its next write. */
+  private epoch = 0;
 
   constructor(private readonly store: SnapshotStore) {}
 
@@ -321,12 +347,34 @@ export class ProjectSaver {
     this.storedProject = project.id;
   }
 
+  /**
+   * Drops the saves still queued (a write already in flight finishes) and forgets what the
+   * store holds, so the next `save` writes its geometry again.
+   */
+  reset(): void {
+    this.epoch++;
+    this.storedProject = null;
+  }
+
+  /** `reset`, then empties the store once every write in flight has finished. */
+  clear(): Promise<void> {
+    this.reset();
+    const result = this.chain.then(() => this.store.clear());
+    this.chain = result.catch(() => {});
+    return result;
+  }
+
+  /** Resolves when the project is stored (also when a `reset` or `clear` made this save moot). */
   save(project: Project): Promise<void> {
+    const epoch = this.epoch;
     const run = async () => {
+      if (epoch !== this.epoch) return;
       if (this.storedProject !== project.id) {
         this.storedProject = null; // a failed write leaves the store in an unknown state
-        await this.store.saveGeometry(toGeometrySnapshot(project));
-        this.storedProject = project.id;
+        // One atomic write: a cut-off or a quota failure cannot leave new geometry next to the old project's paint.
+        await this.store.saveBoth(toGeometrySnapshot(project), toPaintSnapshot(project));
+        if (epoch === this.epoch) this.storedProject = project.id; // after a reset the store is not this project's to assume
+        return;
       }
       await this.store.savePaint(toPaintSnapshot(project));
     };

@@ -6,12 +6,15 @@ import type { PaintSettings } from "@/tools/types";
 import { ModelViewer } from "@/view/ModelViewer";
 import { projectToScene } from "@/view/projectScene";
 import { syncViewerToProject } from "@/view/projectSync";
+import type { HiddenObjects } from "./objectVisibility";
 
 const isDark = () => document.documentElement.classList.contains("dark");
 
 interface ModelCanvasProps {
   project: Project | null;
   settings: PaintSettings;
+  /** Objects not to draw, pick or paint (view state). */
+  hiddenObjects: HiddenObjects;
   /** The eyedropper picked a design color. */
   onPickState: (state: number) => void;
   /** The viewer could not start, build the model or draw it. */
@@ -19,7 +22,7 @@ interface ModelCanvasProps {
 }
 
 /** Mounts the three.js viewer and keeps it in sync with the project and the theme; paint tools act on it. */
-export function ModelCanvas({ project, settings, onPickState, onFailed }: ModelCanvasProps) {
+export function ModelCanvas({ project, settings, hiddenObjects, onPickState, onFailed }: ModelCanvasProps) {
   const host = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLDivElement>(null);
   const swatch = useRef<HTMLSpanElement>(null);
@@ -95,6 +98,13 @@ export function ModelCanvas({ project, settings, onPickState, onFailed }: ModelC
   useEffect(() => {
     controller.current?.setSettings(settings);
   }, [settings]);
+
+  // After the scene effect: a new scene starts with everything visible, so the hidden set is applied again.
+  useEffect(() => {
+    const v = viewer.current;
+    if (!v || !project) return;
+    project.objects.forEach((_, i) => v.setObjectVisible(i, !hiddenObjects.has(i)));
+  }, [project, hiddenObjects]);
 
   return (
     <>

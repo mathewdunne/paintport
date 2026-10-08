@@ -31,6 +31,7 @@ npm run build      # typecheck + production build into dist/
 - `src/doc/`: the editable document. `Project` owns every edit (paint, palette, base colors), the undo stack (strokes, count and memory budget) and change events; `TrianglePaintField` stores whole-triangle design states and preserves imported split trees; welded edge topology drives shell/smart fill; autosave snapshots (geometry and paint halves). DOM-free.
 - `src/tools/`: `PaintController` turns pointer input into document edits (brush strokes, fills, eyedropper) through a `PaintView` interface, so it is testable with a fake view.
 - `src/view/`: three.js viewer, React-free. Per-triangle flat colors in non-indexed geometry, range-based color updates, sRGB bytes converted to linear in a vertex-shader patch; three-mesh-bvh picking; a depth pass for visible-only brushing; `projectSync` applies document events incrementally.
+- `src/persist/`: IndexedDB `SnapshotStore` (database `paintportplus`, one record per autosave half), the debounced `Autosaver` and session restore. Browser-facing, but free of React.
 - `src/ui/`: React components. `src/strings.ts` holds every user-facing string.
 - `test/support/`: parity harness, PRNG, synthetic 3MF generators, mesh fixtures.
 

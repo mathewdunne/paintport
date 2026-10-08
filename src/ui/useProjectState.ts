@@ -1,8 +1,9 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { DesignColor, Project } from "@/doc/project";
+import type { DesignColor, PartId, Project } from "@/doc/project";
 
 const noop = () => {};
 const emptyPalette: readonly DesignColor[] = [];
+const emptyBase: ReadonlyMap<PartId, number> = new Map();
 
 /**
  * Undo/redo availability. Subscribes to history events only, so React does not re-render
@@ -24,4 +25,13 @@ export function useProjectPalette(project: Project | null): readonly DesignColor
     [project],
   );
   return useSyncExternalStore(subscribe, () => (project ? project.palette : emptyPalette));
+}
+
+/** Base color per part; a new map whenever a base color changes (also when colors are deleted, which moves them). */
+export function useProjectBase(project: Project | null): ReadonlyMap<PartId, number> {
+  const subscribe = useCallback(
+    (onChange: () => void) => (project ? project.subscribe((e) => { if (e.kind === "base" || e.kind === "palette") onChange(); }) : noop),
+    [project],
+  );
+  return useSyncExternalStore(subscribe, () => (project ? project.baseColor : emptyBase));
 }

@@ -3,52 +3,19 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { DesignColor, Project } from "@/doc/project";
+import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
 import { formatRadius, radiusToSlider, sliderToRadius } from "@/tools/radius";
 import type { PaintSettings } from "@/tools/types";
-import { useProjectPalette } from "./useProjectState";
+import { ObjectsTab } from "./ObjectsTab";
+import { PaletteSection } from "./palette/PaletteSection";
+import type { HiddenObjects } from "./objectVisibility";
 
 /** Positions on the logarithmic radius slider: about 2.5% per arrow-key step. */
 const RADIUS_SLIDER_STEPS = 200;
 
 function Empty({ children }: { children: string }) {
   return <p className="text-sm text-muted-foreground">{children}</p>;
-}
-
-function Swatches({ palette, active, onSelect }: { palette: readonly DesignColor[]; active: number; onSelect: (state: number) => void }) {
-  // Index 0 is the unused "base" slot. Colors are normalized hex values (see createProject).
-  return (
-    <ul className="flex flex-wrap gap-2">
-      {palette.slice(1).map((c, i) => {
-        const state = i + 1;
-        const selected = state === active;
-        const label = `${strings.panel.swatchLabel} ${state}, ${c.color}`;
-        return (
-          <li key={state}>
-            <button
-              type="button"
-              aria-pressed={selected}
-              aria-label={label}
-              title={label}
-              onClick={() => onSelect(state)}
-              className="group flex w-9 cursor-pointer flex-col items-center gap-0.5 rounded-md outline-none"
-            >
-              <span
-                className={`size-8 rounded-md border transition-shadow group-focus-visible:ring-3 group-focus-visible:ring-ring/50 ${
-                  selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "group-hover:ring-2 group-hover:ring-ring/60"
-                }`}
-                style={{ backgroundColor: c.color }}
-              />
-              <span aria-hidden className={`text-[10px] leading-none ${selected ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                {state}
-              </span>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
-  );
 }
 
 function SliderRow({ label, value, children }: { label: string; value: string; children: ReactNode }) {
@@ -67,10 +34,13 @@ interface SidePanelProps {
   project: Project | null;
   settings: PaintSettings;
   onSettings: (patch: Partial<PaintSettings>) => void;
+  hiddenObjects: HiddenObjects;
+  onToggleObject: (index: number) => void;
+  onSoloObject: (index: number) => void;
+  onShowAllObjects: () => void;
 }
 
-export function SidePanel({ project, settings, onSettings }: SidePanelProps) {
-  const palette = useProjectPalette(project);
+export function SidePanel({ project, settings, onSettings, hiddenObjects, onToggleObject, onSoloObject, onShowAllObjects }: SidePanelProps) {
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l">
       <Tabs defaultValue="paint" className="min-h-0 flex-1 gap-0">
@@ -89,7 +59,7 @@ export function SidePanel({ project, settings, onSettings }: SidePanelProps) {
                 {strings.panel.palette}
               </h2>
               {project ? (
-                <Swatches palette={palette} active={settings.activeState} onSelect={(activeState) => onSettings({ activeState })} />
+                <PaletteSection project={project} active={settings.activeState} onActive={(activeState) => onSettings({ activeState })} />
               ) : (
                 <Empty>{strings.panel.paletteEmpty}</Empty>
               )}
@@ -135,17 +105,7 @@ export function SidePanel({ project, settings, onSettings }: SidePanelProps) {
           </TabsContent>
           <TabsContent value="objects">
             {project ? (
-              <ul className="space-y-1">
-                {project.objects.map((o) => (
-                  <li key={o.index} className="flex items-baseline justify-between gap-3 rounded-md border px-2.5 py-1.5 text-sm">
-                    {/* File content: rendered as React text only. */}
-                    <span className="min-w-0 truncate font-medium">{o.name || strings.panel.unnamedObject}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {strings.panel.triangleCount(o.triCount)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <ObjectsTab project={project} hidden={hiddenObjects} onToggle={onToggleObject} onSolo={onSoloObject} onShowAll={onShowAllObjects} />
             ) : (
               <Empty>{strings.panel.objectsEmpty}</Empty>
             )}

@@ -135,7 +135,10 @@ pin, Bambu's 16-filament cap).
 
 ### Saving (Q2.4, Q6.1)
 - The current project autosaves to IndexedDB, so reloading or crashing loses nothing.
-  One project at a time.
+  One project at a time; a second tab runs without autosave (Web Lock) instead of
+  overwriting the first. Importing over a project with edits asks for confirmation.
+  A saved session from a newer version, or one that fails validation, is never deleted
+  automatically; it's only replaced by an explicit import or "New".
 - Every export embeds a **design sidecar** that slicers ignore (section 5.4).
   Re-importing a PaintPort+ export restores design colors exactly. If the file was
   re-saved by a slicer, the sidecar is probably gone and import falls back to the spool
@@ -295,7 +298,12 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
    marker until edited. _default_ On reload, the last project auto-restores; a "New"
    action in the header discards it after confirmation.
 3. **Mapping + export parity**: Export tab with spools, auto-map, ColorMix, all three
-   targets, the design/print toggle, and the design sidecar. The imported ColorMix recipe
+   targets, the design/print toggle, and the design sidecar. Before the Design/Print
+   toggle, switch the viewer from per-vertex RGB to a per-triangle state attribute plus a
+   palette texture lookup in the shader, so color edits and the toggle are a tiny texture
+   upload instead of a full-mesh rewrite (today a color-picker drag costs ~14 ms per frame
+   on 2.65M triangles). Also XML-unescape object names read from slicer configs (names
+   like `&lt;b&gt;` currently show escaped). The imported ColorMix recipe
    hints (`mix` on palette entries, from phase 2.0) should pre-fill the mapping when the
    user's spools match the file's physical extruders. Once this phase is done,
    `/classic/` can be retired (user's call).

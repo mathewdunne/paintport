@@ -182,6 +182,23 @@ describe("snapshot errors", () => {
     expect(corrupt((s) => { (s.paint as { version?: number }).version = undefined; })).toBe("SNAPSHOT_VERSION");
   });
 
+  it("reads a future renamed format as another version, not as damage", () => {
+    expect(corrupt((s) => { (s.geometry as { format: string }).format = "paintport-plus-geometry-v2"; s.geometry.version = 2; })).toBe("SNAPSHOT_VERSION");
+    expect(corrupt((s) => { (s.paint as { format: string }).format = "renamed"; s.paint.version = 7; })).toBe("SNAPSHOT_VERSION");
+    // ... but a foreign record that merely has some other shape is still damage.
+    expect(corrupt((s) => { (s.paint as { format: string }).format = "renamed"; })).toBe("SNAPSHOT_INVALID");
+    expect(corrupt((s) => { (s.geometry as { format: string }).format = "renamed"; (s.geometry as { version: unknown }).version = undefined; })).toBe("SNAPSHOT_INVALID");
+    expect(corrupt((s) => { (s.geometry as { format: string }).format = "renamed"; (s.geometry as { version: unknown }).version = "2"; })).toBe("SNAPSHOT_INVALID");
+    expect(code({ geometry: { version: 2 }, paint: {} })).toBe("SNAPSHOT_VERSION");
+  });
+
+  it("finds another version in the paint half even when the geometry half is damaged", () => {
+    const s = clone(richProject());
+    s.paint.version = 2;
+    s.geometry.objects[0].tris[0] = 9999; // would be SNAPSHOT_INVALID
+    expect(code(s)).toBe("SNAPSHOT_VERSION");
+  });
+
   it("rejects things that are not snapshots", () => {
     for (const v of [null, undefined, "snapshot", 5, [], {}, { geometry: null, paint: null }, { geometry: {}, paint: {} }]) expect(code(v)).toBe("SNAPSHOT_INVALID");
     expect(corrupt((s) => { (s.geometry as { format: string }).format = "other"; })).toBe("SNAPSHOT_INVALID");
@@ -276,11 +293,16 @@ function memoryStore(initial?: { geometry?: unknown; paint?: unknown }) {
   const log: string[] = [];
   const store = {
     geometry: initial?.geometry ?? null as unknown, paint: initial?.paint ?? null as unknown, cleared: 0, log,
-    async loadGeometry() { return this.geometry; },
-    async loadPaint() { return this.paint; },
-    async saveGeometry(g: GeometrySnapshot) { log.push("geometry"); this.geometry = g; },
-    async savePaint(p: PaintSnapshot) { log.push("paint"); this.paint = p; },
-    async clear() { this.geometry = null; this.paint = null; this.cleared++; },
+    // These refer to `store`, not `this`: tests copy the object with a spread to override one method.
+    async loadGeometry() { return store.geometry; },
+    async loadPaint() { return store.paint; },
+    async saveBoth(g: GeometrySnapshot, p: PaintSnapshot) { log.push("both"); store.geometry = g; store.paint = p; },
+    async savePaint(p: PaintSnapshot) {
+      if ((store.geometry as { projectId?: string } | null)?.projectId !== p.projectId) throw new Error("conflict");
+      log.push("paint");
+      store.paint = p;
+    },
+    async clear() { store.geometry = null; store.paint = null; store.cleared++; },
   };
   return store satisfies SnapshotStore;
 }
@@ -300,14 +322,25 @@ describe("restoreProject", () => {
     expect(store.cleared).toBe(0);
   });
 
-  it("clears damaged data and says so", async () => {
+  it("reports damaged data but keeps it, so one bad read cannot destroy work", async () => {
     const s = clone(richProject());
     const junk = memoryStore({ geometry: { hello: "world" }, paint: 5 });
     expect((await restoreProject(junk)).status).toBe("invalid");
-    expect(junk.cleared).toBe(1);
-    const half = memoryStore({ geometry: s.geometry, paint: null }); // a crash between the two writes
+    expect(junk.cleared).toBe(0);
+    expect(junk.paint).toBe(5);
+    const half = memoryStore({ geometry: s.geometry, paint: null }); // e.g. halves of two projects, or a crash
     expect((await restoreProject(half)).status).toBe("invalid");
-    expect(half.cleared).toBe(1);
+    expect(half.cleared).toBe(0);
+    expect(half.geometry).toBe(s.geometry);
+  });
+
+  it("lets the next save of a new project replace damaged data", async () => {
+    const junk = memoryStore({ geometry: { hello: "world" }, paint: 5 });
+    expect((await restoreProject(junk)).status).toBe("invalid");
+    const p = richProject();
+    await new ProjectSaver(junk).save(p);
+    const r = await restoreProject(junk);
+    expect(r.status === "restored" && r.project.id).toBe(p.id);
   });
 
   it("leaves data of another version alone, so an old tab cannot destroy a newer save", async () => {
@@ -319,6 +352,14 @@ describe("restoreProject", () => {
     expect(r.status).toBe("version");
     expect(store.cleared).toBe(0);
     expect(store.paint).toBe(s.paint);
+  });
+
+  it("leaves a future format with a renamed header alone too", async () => {
+    const s = clone(richProject());
+    const future = { geometry: { ...s.geometry, format: "paintport-plus-geometry-v2", version: 2 }, paint: { ...s.paint, format: "paintport-plus-paint-v2", version: 2 } };
+    const store = memoryStore(future);
+    expect((await restoreProject(store)).status).toBe("version");
+    expect(store.cleared).toBe(0);
   });
 
   it("does not hide storage failures", async () => {
@@ -336,7 +377,7 @@ describe("ProjectSaver", () => {
     p.paintTriangles(0, [5], 2);
     await saver.save(p);
     await saver.save(p);
-    expect(store.log).toEqual(["geometry", "paint", "paint", "paint"]);
+    expect(store.log).toEqual(["both", "paint", "paint"]);
     const r = await restoreProject(store);
     expect(r.status === "restored" && toSnapshot(r.project)).toEqual(toSnapshot(p));
   });
@@ -346,7 +387,7 @@ describe("ProjectSaver", () => {
     const saver = new ProjectSaver(store);
     await saver.save(richProject());
     await saver.save(richProject());
-    expect(store.log).toEqual(["geometry", "paint", "geometry", "paint"]);
+    expect(store.log).toEqual(["both", "both"]);
   });
 
   it("skips the geometry for a project that was restored from the store", async () => {
@@ -362,21 +403,105 @@ describe("ProjectSaver", () => {
 
   it("keeps overlapping saves in order", async () => {
     const store = memoryStore();
-    const slow = { ...store, async saveGeometry(g: GeometrySnapshot) { await new Promise((r) => setTimeout(r, 20)); await store.saveGeometry(g); } };
+    const slow = { ...store, async saveBoth(g: GeometrySnapshot, p: PaintSnapshot) { await new Promise((r) => setTimeout(r, 20)); await store.saveBoth(g, p); } };
     const saver = new ProjectSaver(slow);
     const p = richProject();
     await Promise.all([saver.save(p), saver.save(p), saver.save(p)]);
-    expect(store.log).toEqual(["geometry", "paint", "paint", "paint"]);
+    expect(store.log).toEqual(["both", "paint", "paint"]);
   });
 
   it("retries the geometry after a failed write and does not wedge later saves", async () => {
     const store = memoryStore();
     let fail = true;
-    const flaky = { ...store, async saveGeometry(g: GeometrySnapshot) { if (fail) { fail = false; throw new Error("quota"); } await store.saveGeometry(g); } };
+    const flaky = { ...store, async saveBoth(g: GeometrySnapshot, p: PaintSnapshot) { if (fail) { fail = false; throw new Error("quota"); } await store.saveBoth(g, p); } };
     const saver = new ProjectSaver(flaky);
     const p = richProject();
     await expect(saver.save(p)).rejects.toThrow("quota");
     await saver.save(p);
-    expect(store.log).toEqual(["geometry", "paint"]);
+    expect(store.log).toEqual(["both"]);
+  });
+
+  it("a failed atomic write leaves the previous project untouched", async () => {
+    const store = memoryStore();
+    await new ProjectSaver(store).save(richProject());
+    const before = { geometry: store.geometry, paint: store.paint };
+    const failing = { ...store, saveBoth: () => Promise.reject(new Error("quota")) };
+    await expect(new ProjectSaver(failing).save(richProject())).rejects.toThrow("quota");
+    expect(store.geometry).toBe(before.geometry);
+    expect(store.paint).toBe(before.paint);
+  });
+
+  it("does not write paint over another project's geometry", async () => {
+    const store = memoryStore();
+    const a = richProject();
+    const saverA = new ProjectSaver(store);
+    await saverA.save(a); // tab A
+    await new ProjectSaver(store).save(richProject()); // tab B imported something else
+    a.paintTriangles(0, [1], 2);
+    await expect(saverA.save(a)).rejects.toThrow("conflict");
+  });
+
+  it("reset drops the saves that are still queued, and the next save writes its geometry again", async () => {
+    const store = memoryStore();
+    const saver = new ProjectSaver(store);
+    const p = richProject();
+    await saver.save(p);
+    store.log.length = 0;
+    const queued = [saver.save(p), saver.save(p)];
+    saver.reset();
+    await Promise.all(queued);
+    expect(store.log).toEqual([]);
+    await saver.save(p);
+    expect(store.log).toEqual(["both"]);
+  });
+
+  describe("clear", () => {
+    /** A store whose geometry write waits until `release()` is called. */
+    function gatedStore() {
+      const store = memoryStore();
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      let started!: () => void;
+      const geometryStarted = new Promise<void>((r) => { started = r; });
+      const gated = { ...store, async saveBoth(g: GeometrySnapshot, p: PaintSnapshot) { started(); await gate; await store.saveBoth(g, p); }, async savePaint(p: PaintSnapshot) { await store.savePaint(p); }, async clear() { await store.clear(); } };
+      return { store, gated, release, geometryStarted };
+    }
+
+    it("leaves the store empty even when a save of the old project was queued or in flight", async () => {
+      const { store, gated, release, geometryStarted } = gatedStore();
+      const saver = new ProjectSaver(gated);
+      const old = richProject();
+      const inFlight = saver.save(old); // writing its geometry
+      const queued = saver.save(old);
+      await geometryStarted;
+      const cleared = saver.clear(); // "New"
+      release();
+      await Promise.all([inFlight, queued, cleared]);
+      expect(store.geometry).toBeNull();
+      expect(store.paint).toBeNull(); // no orphan paint half after the clear
+      expect(store.log).toEqual(["both"]); // the write in flight could not be recalled, but nothing was written after it
+      expect(store.cleared).toBe(1);
+    });
+
+    it("lets a new project save normally afterwards", async () => {
+      const store = memoryStore();
+      const saver = new ProjectSaver(store);
+      const a = richProject();
+      await saver.save(a);
+      await saver.clear();
+      expect(store.geometry).toBeNull();
+      const b = richProject();
+      await saver.save(b);
+      const r = await restoreProject(store);
+      expect(r.status === "restored" && r.project.id).toBe(b.id);
+    });
+
+    it("does not wedge the saver when the store cannot be cleared", async () => {
+      const store = memoryStore();
+      const saver = new ProjectSaver({ ...store, clear: () => Promise.reject(new Error("blocked")), saveBoth: store.saveBoth.bind(store), savePaint: store.savePaint.bind(store) });
+      await expect(saver.clear()).rejects.toThrow("blocked");
+      await saver.save(richProject());
+      expect(store.log).toEqual(["both"]);
+    });
   });
 });

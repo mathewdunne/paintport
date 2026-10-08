@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from "react";
-import { ExternalLink, Redo2, Undo2, Upload } from "lucide-react";
+import { ExternalLink, FilePlus, Redo2, Undo2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Project } from "@/doc/project";
@@ -10,9 +10,14 @@ import { useHistoryState } from "./useProjectState";
 interface HeaderProps {
   project: Project | null;
   onImportFiles: (files: ArrayLike<File>) => void;
+  /** False while the last session is being restored. */
+  canImport: boolean;
+  /** "New" needs something to discard: a project, or a saved session of a newer version. */
+  canStartNew: boolean;
+  onNew: () => void;
 }
 
-export function Header({ project, onImportFiles }: HeaderProps) {
+export function Header({ project, onImportFiles, canImport, canStartNew, onNew }: HeaderProps) {
   const input = useRef<HTMLInputElement>(null);
   const { canUndo, canRedo } = useHistoryState(project);
 
@@ -45,7 +50,11 @@ export function Header({ project, onImportFiles }: HeaderProps) {
           </Tooltip>
         </div>
         <input ref={input} type="file" accept=".3mf,.stl,.obj" className="hidden" onChange={onChange} />
-        <Button size="sm" title={strings.header.importHint} onClick={() => input.current?.click()}>
+        <Button variant="outline" size="sm" title={strings.header.newProjectHint} disabled={!canStartNew} onClick={onNew}>
+          <FilePlus />
+          {strings.header.newProject}
+        </Button>
+        <Button size="sm" title={strings.header.importHint} disabled={!canImport} onClick={() => input.current?.click()}>
           <Upload />
           {strings.header.import}
         </Button>
