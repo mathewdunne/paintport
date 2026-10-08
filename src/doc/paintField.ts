@@ -33,6 +33,17 @@ export interface BrushOpts {
    * for callers without a spatial index, not for brushing a large mesh.
    */
   candidates?: ArrayLike<number>;
+
+  /**
+   * The candidates already passed an exact sphere test, so paint all of them without
+   * testing again. The caller sets this when its own test is the authority on the brush
+   * footprint: the view tests in world space, where the brush is a true sphere, while the
+   * field's object-space sphere is only an approximation under a non-uniform scale (its
+   * radius is the mean scale), which would shrink or grow the footprint against the ring.
+   * `center` and `radius` still describe the intent (a sphere), so a finer-grained field
+   * can use them. Ignored without `candidates`.
+   */
+  candidatesExact?: boolean;
 }
 
 /**
@@ -74,7 +85,7 @@ export interface PaintField extends PaintFieldView {
    * Paints the triangles within `radius` of `center` (object space) with `state`: those
    * whose closest point to the center is at most `radius` away, which includes a triangle
    * larger than the sphere that the sphere merely touches. Only `opts.candidates` are
-   * tested (see BrushOpts). Painting clears a triangle's preserved sub-triangle detail.
+   * tested, unless `opts.candidatesExact` says they need not be (see BrushOpts). Painting clears a triangle's preserved sub-triangle detail.
    */
   paintSphere(center: Vec3, radius: number, state: State, opts?: BrushOpts): EditRecord;
 

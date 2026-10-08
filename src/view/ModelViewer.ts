@@ -1,14 +1,32 @@
 import {
-  Box3, DirectionalLight, GridHelper, HemisphereLight, Mesh, MOUSE, PerspectiveCamera, Scene, Sphere, Vector3, WebGLRenderer,
+  Box3, DirectionalLight, GridHelper, HemisphereLight, Mesh, MOUSE, PerspectiveCamera, Raycaster, Scene, Sphere, Vector2, Vector3,
+  WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import type { BrushTarget, PaintView, PickHit } from "../tools/types";
+import { BrushCursor } from "./brushCursor";
+import { DepthPass, MODEL_LAYER, OVERLAY_LAYER } from "./depthPass";
 import { createGrid, setGridTheme } from "./grid";
 import { createSurfaceMaterial } from "./material";
-import { buildObjectGeometry, paletteToBytes, updateTriangleColors, type ObjectGeometry } from "./objectGeometry";
+import {
+  buildObjectGeometry, isTriangleHighlighted, paletteToBytes, rebuildColors, setTriangleHighlight, updateTriangleColors,
+  type ObjectGeometry,
+} from "./objectGeometry";
+import { ObjectPicker, TriangleList } from "./picking";
+import { VisibilityTest } from "./visibility";
 import type { ViewScene } from "./viewScene";
 
 const MAX_PIXEL_RATIO = 2;
 const FOV = 45;
+
+interface ViewObjectEntry {
+  /** Index into `ViewScene.objects`, which is the document's object index. */
+  index: number;
+  mesh: Mesh;
+  geo: ObjectGeometry;
+  /** Built a moment after the scene is shown (see `buildPickers`). */
+  picker: ObjectPicker | null;
+}
 
 /**
  * three.js viewport. Owns the renderer, camera and controls; the document owns the data.
@@ -17,8 +35,12 @@ const FOV = 45;
  * Mouse mapping: the left button is reserved for tools and does nothing here. Right drag
  * orbits, middle drag and Shift+right drag pan, the wheel zooms toward the cursor, and
  * Alt+left drag orbits (trackpads).
+ *
+ * It also answers the paint tools' questions (`PaintView`): what surface is under the
+ * cursor, which triangles a brush sphere may paint (with optional visibility), and it
+ * draws their feedback (brush ring, fill preview).
  */
-export class ModelViewer {
+export class ModelViewer implements PaintView {
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(FOV, 1, 0.1, 1000);
@@ -26,11 +48,23 @@ export class ModelViewer {
   private readonly material = createSurfaceMaterial();
   private readonly resizeObserver: ResizeObserver;
   private readonly canvas: HTMLCanvasElement;
-
+  private readonly raycaster = new Raycaster();
+  private readonly depthPass = new DepthPass();
+  private readonly brushCursor = new BrushCursor();
+  private readonly candidates = new TriangleList();
+  private readonly viewListeners = new Set<() => void>();
   private data: ViewScene | null = null;
   private paletteBytes: Uint8Array = new Uint8Array(0);
-  private objects: { index: number; mesh: Mesh; geo: ObjectGeometry }[] = [];
+  private objects: ViewObjectEntry[] = [];
   private grid: GridHelper | null = null;
+  private highlighted: { entry: ViewObjectEntry; tris: Uint32Array } | null = null;
+  private depth: VisibilityTest | null = null;
+  /** The pose the cached `depth` was rendered for: camera matrix, projection, viewport size, scene epoch. */
+  private readonly depthPose = new Float64Array(35);
+  /** Bumped when the drawn scene changes in a way that invalidates the depth image. */
+  private sceneEpoch = 0;
+  private pickerToken = 0;
+  private pickerTimer = 0;
   private dark = false;
   private raf = 0;
   private disposed = false;
@@ -47,6 +81,7 @@ export class ModelViewer {
 
     // 3MF is Z-up. Must be set before the controls are created.
     this.camera.up.set(0, 0, 1);
+    this.camera.layers.enable(OVERLAY_LAYER); // grid and brush cursor; the depth pass draws the model layer only
     this.scene.add(this.camera);
 
     // Soft sky/ground light plus a headlight that follows the camera (a child of it).
@@ -57,16 +92,16 @@ export class ModelViewer {
     headlight.position.set(-0.35, 0.6, 1);
     this.camera.add(headlight, headlight.target);
 
+    this.scene.add(this.brushCursor.mesh);
+
     // Alt+left must orbit, plain left must not. Decided per press, before OrbitControls
     // (listening on the canvas) sees the event, so there is no key state to get stuck.
     container.addEventListener("pointerdown", this.onPointerDownCapture, true);
     this.canvas.addEventListener("contextmenu", this.onContextMenu);
-
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.mouseButtons = { LEFT: null, MIDDLE: MOUSE.PAN, RIGHT: MOUSE.ROTATE }; // Shift+RIGHT pans (OrbitControls swaps the action)
     this.controls.zoomToCursor = true;
-    this.controls.addEventListener("change", this.requestRender);
-
+    this.controls.addEventListener("change", this.onControlsChange);
     this.canvas.addEventListener("webglcontextlost", this.onContextLost);
     this.canvas.addEventListener("webglcontextrestored", this.requestRender);
 
@@ -91,6 +126,7 @@ export class ModelViewer {
     this.data = data;
     if (!data) {
       this.requestRender();
+      this.notifyViewChange();
       return;
     }
     this.paletteBytes = paletteToBytes(data.palette);
@@ -102,16 +138,20 @@ export class ModelViewer {
         return;
       }
       const mesh = new Mesh(geo.geometry, this.material);
+      mesh.layers.set(MODEL_LAYER);
       this.scene.add(mesh);
-      this.objects.push({ index, mesh, geo });
+      this.objects.push({ index, mesh, geo, picker: null });
       bounds.union(geo.geometry.boundingBox!);
     });
     if (!bounds.isEmpty()) {
       this.grid = createGrid(bounds, this.dark);
+      this.grid.layers.set(OVERLAY_LAYER);
       this.scene.add(this.grid);
       this.frame(bounds);
     }
     this.requestRender();
+    this.notifyViewChange();
+    this.buildPickersSoon();
   }
 
   /**
@@ -126,6 +166,45 @@ export class ModelViewer {
     this.requestRender();
   }
 
+  /**
+   * Installs a new palette. `changed` lists the states whose color value changed: only the
+   * triangles showing them are recolored. "all" recolors every triangle (after states were
+   * merged or renumbered; the scene's `states` must already be up to date).
+   */
+  setPalette(palette: string[], changed: readonly number[] | "all"): void {
+    if (!this.data) return;
+    this.data.palette = palette;
+    this.paletteBytes = paletteToBytes(palette);
+    for (const obj of this.objects) {
+      const states = this.data.objects[obj.index].states;
+      if (changed === "all") {
+        rebuildColors(obj.geo, states, this.paletteBytes);
+        continue;
+      }
+      const flagged = new Uint8Array(Math.max(palette.length, ...changed.map((s) => s + 1)));
+      for (const s of changed) flagged[s] = 1;
+      let n = 0;
+      for (let t = 0; t < states.length; t++) if (states[t] < flagged.length && flagged[states[t]] === 1) n++;
+      if (n === 0) continue;
+      const tris = new Uint32Array(n);
+      n = 0;
+      for (let t = 0; t < states.length; t++) if (states[t] < flagged.length && flagged[states[t]] === 1) tris[n++] = t;
+      updateTriangleColors(obj.geo, states, tris, this.paletteBytes);
+    }
+    this.requestRender();
+  }
+
+  /** Shows or hides an object (it is then neither drawn nor picked nor painted). */
+  setObjectVisible(objectIndex: number, visible: boolean): void {
+    const obj = this.objects.find((o) => o.index === objectIndex);
+    if (!obj || obj.mesh.visible === visible) return;
+    obj.mesh.visible = visible;
+    if (!visible && this.highlighted?.entry === obj) this.setRegionHighlight(objectIndex, null);
+    this.sceneEpoch++;
+    this.requestRender();
+    this.notifyViewChange();
+  }
+
   setDark(dark: boolean): void {
     this.dark = dark;
     if (this.grid) setGridTheme(this.grid, dark);
@@ -135,6 +214,9 @@ export class ModelViewer {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    clearTimeout(this.pickerTimer);
+    this.pickerToken++;
+    this.viewListeners.clear();
     this.resizeObserver.disconnect();
     this.container.removeEventListener("pointerdown", this.onPointerDownCapture, true);
     this.canvas.removeEventListener("contextmenu", this.onContextMenu);
@@ -142,20 +224,162 @@ export class ModelViewer {
     this.canvas.removeEventListener("webglcontextrestored", this.requestRender);
     this.controls.dispose();
     this.clearObjects();
+    this.brushCursor.dispose();
+    this.depthPass.dispose();
     this.material.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss(); // free the GPU context now (StrictMode/HMR remount the viewer)
     this.canvas.remove();
   }
 
+  // --- PaintView -----------------------------------------------------------------
+
+  get element(): HTMLElement {
+    return this.canvas;
+  }
+
+  pick(clientX: number, clientY: number): PickHit | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    this.camera.updateMatrixWorld(true);
+    this.raycaster.setFromCamera(new Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.camera);
+    let best: { entry: ViewObjectEntry; hit: NonNullable<ReturnType<ObjectPicker["raycast"]>> } | null = null;
+    for (const entry of this.objects) {
+      if (!entry.picker || !entry.mesh.visible) continue;
+      const hit = entry.picker.raycast(this.raycaster.ray);
+      if (hit && (!best || hit.distance < best.hit.distance)) best = { entry, hit };
+    }
+    if (!best) return null;
+    const { entry, hit } = best;
+    return {
+      object: entry.index,
+      tri: hit.tri,
+      point: [hit.point.x, hit.point.y, hit.point.z],
+      normal: [hit.normal.x, hit.normal.y, hit.normal.z],
+      distance: hit.distance,
+    };
+  }
+
+  brushCandidates(hit: PickHit, radius: number, visibleOnly: boolean): BrushTarget[] {
+    const visibility = visibleOnly ? this.visibility() : null;
+    const center = new Vector3(hit.point[0], hit.point[1], hit.point[2]);
+    const out: BrushTarget[] = [];
+    for (const entry of this.objects) {
+      if (!entry.picker || !entry.mesh.visible) continue;
+      this.candidates.clear();
+      entry.picker.collectSphere(center, radius, visibility, entry.index === hit.object ? hit.tri : -1, this.candidates);
+      if (this.candidates.length > 0) out.push({ object: entry.index, tris: this.candidates.toArray() });
+    }
+    return out;
+  }
+
+  pixelSizeAt(distance: number): number {
+    return (2 * distance * Math.tan((FOV * Math.PI) / 360)) / Math.max(1, this.container.clientHeight);
+  }
+
+  showBrushCursor(hit: PickHit, radius: number, erase: boolean): void {
+    this.brushCursor.show(new Vector3(...hit.point), new Vector3(...hit.normal), radius, this.pixelSizeAt(hit.distance), erase);
+    this.requestRender();
+  }
+
+  hideBrushCursor(): void {
+    if (this.brushCursor.hide()) this.requestRender();
+  }
+
+  setRegionHighlight(objectIndex: number, tris: Uint32Array | null): void {
+    const previous = this.highlighted;
+    if (previous) setTriangleHighlight(previous.entry.geo, previous.tris, false);
+    this.highlighted = null;
+    const entry = tris && tris.length > 0 ? this.objects.find((o) => o.index === objectIndex) : undefined;
+    if (entry && tris) {
+      setTriangleHighlight(entry.geo, tris, true);
+      this.highlighted = { entry, tris };
+    }
+    if (previous || this.highlighted) this.requestRender();
+  }
+
+  isRegionHighlighted(objectIndex: number, tri: number): boolean {
+    const h = this.highlighted;
+    return !!h && h.entry.index === objectIndex && isTriangleHighlighted(h.entry.geo, tri);
+  }
+
+  onViewChange(listener: () => void): () => void {
+    this.viewListeners.add(listener);
+    return () => { this.viewListeners.delete(listener); };
+  }
+
+  setCursor(cursor: string): void {
+    this.canvas.style.cursor = cursor;
+  }
+
   // --- internals -----------------------------------------------------------------
 
+  /**
+   * The visibility test for the current camera pose. The depth image is rendered once per
+   * pose and scene change and reused, so a stroke pays for it once, not per dab.
+   */
+  private visibility(): VisibilityTest {
+    this.camera.updateMatrixWorld(true);
+    if (this.depth && this.poseUnchanged()) return this.depth;
+    const frame = this.depthPass.render(this.renderer, this.scene, this.camera, Math.max(1, this.container.clientWidth), Math.max(1, this.container.clientHeight));
+    const p = this.camera.position;
+    const test = new VisibilityTest(frame, {
+      view: Array.from(this.camera.matrixWorldInverse.elements),
+      proj: Array.from(this.camera.projectionMatrix.elements),
+      eye: [p.x, p.y, p.z],
+    });
+    this.depth = test;
+    this.storePose();
+    return test;
+  }
+
+  /** Compares the current pose with the cached one without allocating (this runs on every dab). */
+  private poseUnchanged(): boolean {
+    const pose = this.depthPose, m = this.camera.matrixWorld.elements, p = this.camera.projectionMatrix.elements;
+    for (let i = 0; i < 16; i++) if (pose[i] !== m[i] || pose[16 + i] !== p[i]) return false;
+    return pose[32] === this.container.clientWidth && pose[33] === this.container.clientHeight && pose[34] === this.sceneEpoch;
+  }
+
+  private storePose(): void {
+    const pose = this.depthPose, m = this.camera.matrixWorld.elements, p = this.camera.projectionMatrix.elements;
+    for (let i = 0; i < 16; i++) { pose[i] = m[i]; pose[16 + i] = p[i]; }
+    pose[32] = this.container.clientWidth;
+    pose[33] = this.container.clientHeight;
+    pose[34] = this.sceneEpoch;
+  }
+
+  /** Builds the spatial indexes one object per task, after the first frame, so loading does not stall on them. */
+  private buildPickersSoon(): void {
+    const token = ++this.pickerToken;
+    clearTimeout(this.pickerTimer);
+    const pending = [...this.objects];
+    const next = () => {
+      if (this.disposed || token !== this.pickerToken) return;
+      const entry = pending.shift();
+      if (!entry) return;
+      try {
+        entry.picker = new ObjectPicker(entry.geo.geometry, entry.geo.slotOfTri, entry.geo.slotCount);
+      } catch (error) {
+        this.onError(error);
+      }
+      this.pickerTimer = window.setTimeout(next, 0);
+    };
+    // A short delay lets the browser paint the model before the first (blocking) build.
+    this.pickerTimer = window.setTimeout(next, 50);
+  }
+
   private clearObjects(): void {
+    this.pickerToken++;
+    clearTimeout(this.pickerTimer);
+    this.highlighted = null;
+    this.depth = null;
+    this.sceneEpoch++;
     for (const o of this.objects) {
       this.scene.remove(o.mesh);
       o.geo.geometry.dispose();
     }
     this.objects = [];
+    this.brushCursor.hide();
     if (this.grid) {
       this.scene.remove(this.grid);
       this.grid.geometry.dispose();
@@ -189,7 +413,17 @@ export class ModelViewer {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.requestRender();
+    this.notifyViewChange();
   }
+
+  private notifyViewChange(): void {
+    for (const l of [...this.viewListeners]) l();
+  }
+
+  private readonly onControlsChange = (): void => {
+    this.requestRender();
+    this.notifyViewChange();
+  };
 
   private readonly requestRender = (): void => {
     if (this.raf || this.disposed) return;
@@ -210,6 +444,5 @@ export class ModelViewer {
   };
 
   private readonly onContextMenu = (e: Event): void => e.preventDefault();
-
   private readonly onContextLost = (e: Event): void => e.preventDefault(); // allow restore
 }

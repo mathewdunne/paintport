@@ -1,6 +1,6 @@
 # PaintPort+ — plan & spec
 
-Status: **requirements agreed, phase 1 not started.** The decisions below came from five
+Status: **phase 1 done; phase 2 in progress.** The decisions below came from five
 question waves with the user (IDs like Q2.1 refer to section 7). Items marked
 _default_ are my calls on things we didn't discuss; push back on any of them.
 

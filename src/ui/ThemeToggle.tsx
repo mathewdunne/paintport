@@ -2,6 +2,7 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { strings } from "@/strings";
+import { SELECTED_TOGGLE } from "./selectedStyle";
 import { useTheme, type ThemeChoice } from "./useTheme";
 
 const OPTIONS: { value: ThemeChoice; label: string; Icon: typeof Sun }[] = [
@@ -24,7 +25,7 @@ export function ThemeToggle() {
       {OPTIONS.map(({ value, label, Icon }) => (
         <Tooltip key={value}>
           <TooltipTrigger asChild>
-            <ToggleGroupItem value={value} aria-label={label}>
+            <ToggleGroupItem value={value} aria-label={label} className={SELECTED_TOGGLE}>
               <Icon />
             </ToggleGroupItem>
           </TooltipTrigger>

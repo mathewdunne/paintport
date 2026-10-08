@@ -20,15 +20,17 @@ npm run build      # typecheck + production build into dist/
 ```
 
 - Parity suite knobs: `PARITY_SEED=<n> PARITY_SCALE=<x> npx vitest run src/core/parity.test.ts`
-- 1M-triangle perf check: `PERF=1 npx vitest run test/perf.test.ts`
+- Perf checks (1M+ triangles, opt-in): `PERF=1 npx vitest run test/perf.test.ts test/docPerf.test.ts test/pickPerf.test.ts`
+- Real-file import check: `REAL_3MF=<path to a .3mf> npx vitest run test/prusaRealFile.test.ts`
 - Classic-only tests still work against the moved file, e.g. `node test/test_paintport.mjs public/classic/index.html <painted.3mf> <out.3mf> [mode] [target]`
 
 ## Architecture
 
 - `src/core/`: TypeScript port of the classic tool's DOM-free core (ZIP, 3MF load/build, TriangleSelector paint codec with `prusa`/`bbs` dialects, color math, ColorMix). `src/core/parity.test.ts` evaluates the original core from `public/classic/index.html` in `node:vm` and requires identical outputs on seeded random inputs. Any intended behavior change must be handled there explicitly and narrowly (see the volume-type fix), never by weakening the comparison.
 - `src/formats/`: STL/OBJ parsers and `importFile` dispatch, producing the core's `Model` shape.
-- `src/doc/`: `Project` (design palette, per-part base colors), the `PaintField` interface and `TrianglePaintField` (v1, whole-triangle paint; split-tree paint from imports is preserved verbatim).
-- `src/view/`: three.js viewer, React-free. Per-triangle flat colors in non-indexed geometry, range-based color updates, sRGB bytes converted to linear in a vertex-shader patch.
+- `src/doc/`: the editable document. `Project` owns every edit (paint, palette, base colors), the undo stack (strokes, count and memory budget) and change events; `TrianglePaintField` stores whole-triangle design states and preserves imported split trees; welded edge topology drives shell/smart fill; autosave snapshots (geometry and paint halves). DOM-free.
+- `src/tools/`: `PaintController` turns pointer input into document edits (brush strokes, fills, eyedropper) through a `PaintView` interface, so it is testable with a fake view.
+- `src/view/`: three.js viewer, React-free. Per-triangle flat colors in non-indexed geometry, range-based color updates, sRGB bytes converted to linear in a vertex-shader patch; three-mesh-bvh picking; a depth pass for visible-only brushing; `projectSync` applies document events incrementally.
 - `src/ui/`: React components. `src/strings.ts` holds every user-facing string.
 - `test/support/`: parity harness, PRNG, synthetic 3MF generators, mesh fixtures.
 

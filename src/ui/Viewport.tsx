@@ -3,14 +3,20 @@ import { Box, Info, Loader2, X } from "lucide-react";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
+import type { PaintSettings } from "@/tools/types";
 import { ModelCanvas } from "./ModelCanvas";
+import { SELECTED_TOGGLE } from "./selectedStyle";
 
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
 
 interface ViewportProps {
   project: Project | null;
+  settings: PaintSettings;
+  /** The eyedropper picked a design color. */
+  onPickState: (state: number) => void;
   loading: boolean;
   error: string | null;
   /** Neutral message, e.g. that extra dropped files were ignored. */
@@ -20,7 +26,7 @@ interface ViewportProps {
   onImportFiles: (files: ArrayLike<File>) => void;
 }
 
-export function Viewport({ project, loading, error, notice, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
+export function Viewport({ project, settings, onPickState, loading, error, notice, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
   const [dragging, setDragging] = useState(false);
   const [viewerFailed, setViewerFailed] = useState(false);
   const depth = useRef(0); // dragenter/dragleave also fire for children
@@ -57,7 +63,7 @@ export function Viewport({ project, loading, error, notice, onDismissError, onDi
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <ModelCanvas project={project} onFailed={() => setViewerFailed(true)} />
+      <ModelCanvas project={project} settings={settings} onPickState={onPickState} onFailed={() => setViewerFailed(true)} />
 
       {!project && !loading && !viewerFailed && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -113,22 +119,29 @@ export function Viewport({ project, loading, error, notice, onDismissError, onDi
         </div>
       )}
 
-      {/* Placeholder: Design/Print switching is wired up in phase 3. */}
+      {/* Design is the only view until phase 3 (mapping), so Print is disabled. */}
       <div className="absolute inset-x-0 bottom-4 flex justify-center">
         <ToggleGroup
           type="single"
           variant="outline"
           size="sm"
-          defaultValue="design"
+          value="design"
+          onValueChange={() => {}} // Design is the only view for now
           aria-label={strings.viewport.viewMode}
           className="bg-background shadow-sm"
         >
-          <ToggleGroupItem value="design" className="px-3">
+          <ToggleGroupItem value="design" className={`px-3 ${SELECTED_TOGGLE}`}>
             {strings.viewport.design}
           </ToggleGroupItem>
-          <ToggleGroupItem value="print" className="px-3">
-            {strings.viewport.print}
-          </ToggleGroupItem>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* aria-disabled, not disabled: the button keeps its name ("Print") and takes hover and focus, so the tooltip works without a wrapper. */}
+              <ToggleGroupItem value="print" aria-disabled="true" className="cursor-not-allowed px-3 opacity-50 hover:bg-transparent">
+                {strings.viewport.print}
+              </ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent side="top">{strings.viewport.printSoon}</TooltipContent>
+          </Tooltip>
         </ToggleGroup>
       </div>
     </main>

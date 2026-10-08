@@ -132,6 +132,21 @@ describe("paintSphere", () => {
     expect(p.undoCount).toBe(steps);
   });
 
+  it("paints candidates flagged exact without testing them again, and still tests unflagged ones", () => {
+    const p = projectOf(BIG);
+    // The sphere is nowhere near the triangle: tested, it misses; flagged exact, the caller's word is taken.
+    expect(hit(p, [50, 50, 50], 1, { candidates: [0] })).toBe(0);
+    expect(p.paintSphere(0, [50, 50, 50], 1, 2, { candidates: [0], candidatesExact: true })).toBe(1);
+    const q = projectOf(BIG);
+    expect(q.paintSphere(0, [50, 50, 50], 1, 2, { candidatesExact: true })).toBe(0); // no candidates: the flag is ignored
+  });
+
+  it("still skips non-paintable triangles and ids out of range when candidates are exact", () => {
+    const mesh = cubeMesh();
+    const p = projectOf(mesh, { parts: [{ firstTri: 0, triCount: 6, extruder: 1, type: "ModelPart", name: null }, { firstTri: 6, triCount: 6, extruder: 1, type: "NegativeVolume", name: null }] });
+    expect(p.paintSphere(0, [0, 0, 0], 1, 2, { candidates: [0, 7, 99], candidatesExact: true })).toBe(1);
+  });
+
   it("ignores impossible radii", () => {
     const p = projectOf(BIG);
     expect(hit(p, [3, 3, 0], -1)).toBe(0);

@@ -92,6 +92,7 @@ export class TrianglePaintField implements PaintField {
     const { vertices, tris } = this.mesh;
     const { states, preserved, paintable } = this;
     const cand = opts?.candidates;
+    const exact = !!cand && !!opts?.candidatesExact; // the caller already tested them
     const count = cand ? cand.length : this.mesh.triCount;
     const hits = new Uint32Array(count);
     const r2 = radius * radius;
@@ -101,7 +102,7 @@ export class TrianglePaintField implements PaintField {
       const t = cand ? cand[i] : i;
       if (paintable[t] !== 1) continue;
       if (states[t] === state && (preserved.size === 0 || !preserved.has(t))) continue; // nothing to change: skip the geometry test
-      if (sqDistPointTriangle(vertices, tris, t, cx, cy, cz) <= r2) hits[k++] = t;
+      if (exact || sqDistPointTriangle(vertices, tris, t, cx, cy, cz) <= r2) hits[k++] = t;
     }
     return this.paintTriangles(hits.subarray(0, k), state);
   }

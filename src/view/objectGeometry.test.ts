@@ -1,7 +1,7 @@
 import { ShaderLib, type BufferAttribute } from "three";
 import { describe, expect, it } from "vitest";
 import { patchVertexShader } from "./material";
-import { buildObjectGeometry, paletteToBytes, updateTriangleColors } from "./objectGeometry";
+import { buildObjectGeometry, isTriangleHighlighted, paletteToBytes, rebuildColors, setTriangleHighlight, updateTriangleColors } from "./objectGeometry";
 import type { ViewObject } from "./viewScene";
 
 // Two triangles on a shared edge, one hidden triangle, translated by +10 in x.
@@ -113,7 +113,59 @@ describe("updateTriangleColors", () => {
   });
 });
 
+describe("setTriangleHighlight", () => {
+  it("marks the 3 vertices of the given triangles and flags only their range for upload", () => {
+    const g = buildObjectGeometry(object(), paletteToBytes(PALETTE));
+    const attr = g.geometry.getAttribute("highlight") as BufferAttribute;
+    expect(attr.normalized).toBe(true);
+    expect(Array.from(attr.array)).toEqual([0, 0, 0, 0, 0, 0]);
+    setTriangleHighlight(g, [1], true);
+    expect(Array.from(attr.array)).toEqual([0, 0, 0, 255, 255, 255]);
+    expect(attr.updateRanges).toEqual([{ start: 3, count: 3 }]);
+    expect(isTriangleHighlighted(g, 1)).toBe(true);
+    expect(isTriangleHighlighted(g, 0)).toBe(false);
+    setTriangleHighlight(g, [1], false);
+    expect(isTriangleHighlighted(g, 1)).toBe(false);
+  });
+
+  it("ignores masked and out-of-range triangles", () => {
+    const g = buildObjectGeometry(object(), paletteToBytes(PALETTE));
+    setTriangleHighlight(g, [2, 99], true);
+    expect(Array.from(g.highlight)).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(isTriangleHighlighted(g, 2)).toBe(false);
+    expect(isTriangleHighlighted(g, 99)).toBe(false);
+  });
+
+  it("uploads everything in one range for a big region, without sorting", () => {
+    const n = 10000;
+    const tris = new Int32Array(n * 3).fill(0);
+    for (let i = 0; i < n; i++) { tris[i * 3 + 1] = 1; tris[i * 3 + 2] = 2; }
+    const obj = object({ tris, states: new Uint16Array(n).fill(1), mask: new Uint8Array(n).fill(1) });
+    const g = buildObjectGeometry(obj, paletteToBytes(PALETTE));
+    const region = Uint32Array.from({ length: n / 2 }, (_, i) => (i * 7919) % n); // unsorted, half of the mesh
+    setTriangleHighlight(g, region, true);
+    const attr = g.geometry.getAttribute("highlight") as BufferAttribute;
+    expect(attr.updateRanges).toEqual([{ start: 0, count: n * 3 }]);
+  });
+});
+
+describe("rebuildColors", () => {
+  it("rewrites every drawn triangle from the states and the new palette", () => {
+    const obj = object();
+    const g = buildObjectGeometry(obj, paletteToBytes(PALETTE));
+    rebuildColors(g, new Uint16Array([2, 2, 1]), paletteToBytes(["#000000", "#0000FF", "#FFFF00"]));
+    expect(Array.from(g.colors)).toEqual([255, 255, 0, 255, 255, 0, 255, 255, 0, 255, 255, 0, 255, 255, 0, 255, 255, 0]);
+    expect((g.geometry.getAttribute("color") as BufferAttribute).updateRanges).toEqual([{ start: 0, count: 18 }]);
+  });
+});
+
 describe("patchVertexShader", () => {
+  it("declares the highlight attribute and mixes it into the vertex color", () => {
+    const patched = patchVertexShader(ShaderLib.lambert.vertexShader);
+    expect(patched).toContain("attribute float highlight;");
+    expect(patched).toContain("highlight * 0.6");
+  });
+
   it("converts the sRGB vertex color after three's color_vertex chunk", () => {
     const src = ShaderLib.lambert.vertexShader;
     const patched = patchVertexShader(src);

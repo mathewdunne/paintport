@@ -9,12 +9,23 @@ vec3 ppSrgbToLinear( vec3 c ) {
 }
 `;
 
-/** Returns the patched vertex shader; throws if three.js no longer includes color_vertex. */
+/**
+ * Returns the patched vertex shader; throws if three.js no longer includes color_vertex.
+ *
+ * Also adds the `highlight` attribute (0..1 per vertex) that marks the region a fill would
+ * paint: the color is mixed toward near-black on light surfaces and toward white on dark
+ * ones, so the preview stands out on any color.
+ */
 export function patchVertexShader(vertexShader: string): string {
   if (!vertexShader.includes("#include <color_vertex>")) throw new Error("vertex shader has no color_vertex include");
-  return SRGB_TO_LINEAR_GLSL + vertexShader.replace(
+  return "attribute float highlight;\n" + SRGB_TO_LINEAR_GLSL + vertexShader.replace(
     "#include <color_vertex>",
-    "#include <color_vertex>\n#ifdef USE_COLOR\n\tvColor.rgb = ppSrgbToLinear( color );\n#endif",
+    `#include <color_vertex>
+#ifdef USE_COLOR
+	vColor.rgb = ppSrgbToLinear( color );
+	float ppLuma = dot( vColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+	vColor.rgb = mix( vColor.rgb, ppLuma > 0.18 ? vec3( 0.02 ) : vec3( 0.95 ), highlight * 0.6 );
+#endif`,
   );
 }
 
@@ -35,6 +46,6 @@ export function createSurfaceMaterial(): MeshLambertMaterial {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = patchVertexShader(shader.vertexShader);
   };
-  material.customProgramCacheKey = () => "paintport-srgb-vertex-colors";
+  material.customProgramCacheKey = () => "paintport-srgb-vertex-colors-highlight";
   return material;
 }

@@ -212,7 +212,8 @@ export class Project {
   /**
    * Brush: paints the triangles of `objectIndex` that the sphere touches (see
    * `PaintField.paintSphere` for the contract: `center` and `radius` in object space,
-   * `opts.candidates` already narrowed and visibility-filtered by the caller). State 0 erases.
+   * `opts.candidates` already narrowed and visibility-filtered by the caller, and with
+   * `opts.candidatesExact` already tested against the sphere). State 0 erases.
    * Returns the number of triangles that changed; nothing is recorded or emitted if it is 0.
    */
   paintSphere(objectIndex: number, center: Vec3, radius: number, state: State, opts?: BrushOpts): number {

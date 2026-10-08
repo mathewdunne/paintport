@@ -28,6 +28,8 @@ export interface ObjectGeometry {
   geometry: BufferGeometry;
   /** The geometry's color attribute data (3 bytes per vertex). */
   colors: Uint8Array;
+  /** The geometry's highlight attribute data (1 byte per vertex, 255 = highlighted). */
+  highlight: Uint8Array;
   slotOfTri: Int32Array;
   slotCount: number;
 }
@@ -64,7 +66,9 @@ export function buildObjectGeometry(obj: ViewObject, paletteBytes: Uint8Array): 
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(position, 3));
   geometry.setAttribute("color", new BufferAttribute(color, 3, true));
-  const result: ObjectGeometry = { geometry, colors: color, slotOfTri, slotCount };
+  const highlight = new Uint8Array(slotCount * 3);
+  geometry.setAttribute("highlight", new BufferAttribute(highlight, 1, true));
+  const result: ObjectGeometry = { geometry, colors: color, highlight, slotOfTri, slotCount };
   for (let i = 0; i < triCount; i++) if (slotOfTri[i] >= 0) writeTriangleColor(result, i, states[i], paletteBytes);
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
@@ -83,6 +87,33 @@ function writeTriangleColor(g: ObjectGeometry, tri: number, state: number, palet
     const o = slot * 9 + k * 3;
     color[o] = r; color[o + 1] = gr; color[o + 2] = b;
   }
+}
+
+/** Above this many triangles and share of the drawn ones, sorting for partial uploads is not worth it: upload everything. */
+const WHOLE_UPLOAD_MIN = 4096;
+const WHOLE_UPLOAD_SHARE = 0.25;
+
+/**
+ * Flags the vertex ranges of the given slots (`valuesPerSlot` vertex values each) for
+ * upload, one range per contiguous run of slots. Ranges accumulate across calls until
+ * three.js uploads them on the next render.
+ */
+function flagSlotRanges(g: ObjectGeometry, attr: BufferAttribute, slots: Int32Array, n: number, valuesPerSlot: number): void {
+  if (n === 0) return;
+  if (n > WHOLE_UPLOAD_MIN && n > g.slotCount * WHOLE_UPLOAD_SHARE) {
+    attr.addUpdateRange(0, g.slotCount * valuesPerSlot);
+    attr.needsUpdate = true;
+    return;
+  }
+  const sorted = slots.subarray(0, n).sort();
+  let runStart = sorted[0], prev = sorted[0];
+  for (let i = 1; i <= n; i++) {
+    const slot = i < n ? sorted[i] : -1;
+    if (slot === prev || slot === prev + 1) { prev = slot; continue; }
+    attr.addUpdateRange(runStart * valuesPerSlot, (prev - runStart + 1) * valuesPerSlot);
+    runStart = prev = slot;
+  }
+  attr.needsUpdate = true;
 }
 
 /**
@@ -106,15 +137,33 @@ export function updateTriangleColors(
     writeTriangleColor(g, tri, states[tri], paletteBytes);
     slots[n++] = slot;
   }
-  if (n === 0) return;
-  const sorted = slots.subarray(0, n).sort();
-  const attr = g.geometry.getAttribute("color") as BufferAttribute;
-  let runStart = sorted[0], prev = sorted[0];
-  for (let i = 1; i <= n; i++) {
-    const slot = i < n ? sorted[i] : -1;
-    if (slot === prev || slot === prev + 1) { prev = slot; continue; }
-    attr.addUpdateRange(runStart * 9, (prev - runStart + 1) * 9);
-    runStart = prev = slot;
+  flagSlotRanges(g, g.geometry.getAttribute("color") as BufferAttribute, slots, n, 9);
+}
+
+/** Marks the given document triangles as highlighted (or not) for the region preview. */
+export function setTriangleHighlight(g: ObjectGeometry, triIndices: ArrayLike<number>, on: boolean): void {
+  const slots = new Int32Array(triIndices.length);
+  const value = on ? 255 : 0;
+  let n = 0;
+  for (let i = 0; i < triIndices.length; i++) {
+    const slot = g.slotOfTri[triIndices[i]];
+    if (slot === undefined || slot < 0) continue;
+    g.highlight[slot * 3] = value; g.highlight[slot * 3 + 1] = value; g.highlight[slot * 3 + 2] = value;
+    slots[n++] = slot;
   }
+  flagSlotRanges(g, g.geometry.getAttribute("highlight") as BufferAttribute, slots, n, 3);
+}
+
+/** True if the document triangle is currently highlighted. */
+export function isTriangleHighlighted(g: ObjectGeometry, tri: number): boolean {
+  const slot = g.slotOfTri[tri];
+  return slot !== undefined && slot >= 0 && g.highlight[slot * 3] !== 0;
+}
+
+/** Rewrites every drawn triangle's color from `states` (after the palette changed in bulk). */
+export function rebuildColors(g: ObjectGeometry, states: Uint16Array, paletteBytes: Uint8Array): void {
+  for (let tri = 0; tri < g.slotOfTri.length; tri++) if (g.slotOfTri[tri] >= 0) writeTriangleColor(g, tri, states[tri], paletteBytes);
+  const attr = g.geometry.getAttribute("color") as BufferAttribute;
+  attr.addUpdateRange(0, g.slotCount * 9);
   attr.needsUpdate = true;
 }

@@ -1,6 +1,7 @@
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { strings } from "@/strings";
+import { SELECTED_TOGGLE } from "./selectedStyle";
 import { TOOLS, type ToolId } from "./tools";
 
 export function ToolRail({ tool, onToolChange }: { tool: ToolId; onToolChange: (t: ToolId) => void }) {
@@ -18,7 +19,7 @@ export function ToolRail({ tool, onToolChange }: { tool: ToolId; onToolChange: (
         {TOOLS.map(({ id, label, key, Icon }) => (
           <Tooltip key={id}>
             <TooltipTrigger asChild>
-              <ToggleGroupItem value={id} aria-label={label} aria-keyshortcuts={key} className="size-9">
+              <ToggleGroupItem value={id} aria-label={label} aria-keyshortcuts={key} className={`size-9 ${SELECTED_TOGGLE}`}>
                 <Icon />
               </ToggleGroupItem>
             </TooltipTrigger>
