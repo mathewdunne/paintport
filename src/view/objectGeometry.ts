@@ -1,40 +1,27 @@
 import { BufferAttribute, BufferGeometry } from "three";
-import { applyTransform, hexToRgb, parseTransform } from "../core";
+import { applyTransform, parseTransform } from "../core";
 import type { ViewObject } from "./viewScene";
-
-/** Palette colors as sRGB bytes, 3 per state. Unparseable hex values are neutral gray. */
-export function paletteToBytes(palette: readonly string[]): Uint8Array {
-  const out = new Uint8Array(palette.length * 3);
-  palette.forEach((hex, i) => {
-    const [r, g, b] = hexToRgb(hex);
-    out[i * 3] = Math.round(r * 255);
-    out[i * 3 + 1] = Math.round(g * 255);
-    out[i * 3 + 2] = Math.round(b * 255);
-  });
-  return out;
-}
-
-const GRAY = 128;
 
 /**
  * Non-indexed geometry of one object: 3 vertices per drawn triangle ("slot"), flat
- * per-triangle colors. `slotOfTri` maps a document triangle to its slot (-1 = not drawn),
- * so a color update touches only that triangle's 3 vertices.
+ * per-triangle design states. `slotOfTri` maps a document triangle to its slot (-1 = not
+ * drawn), so a state update touches only that triangle's 3 vertices.
  *
- * The color attribute holds sRGB bytes (precise for dark colors); the material converts
- * them to linear light in the vertex shader (see material.ts).
+ * The `state` attribute holds the triangle's resolved design state (Uint16, equal on its 3
+ * vertices); the material looks the color up in the color table (see colorTable.ts and
+ * material.ts), so recoloring a state never touches the geometry.
  */
 export interface ObjectGeometry {
   geometry: BufferGeometry;
-  /** The geometry's color attribute data (3 bytes per vertex). */
-  colors: Uint8Array;
+  /** The geometry's state attribute data (1 Uint16 per vertex). */
+  vertexStates: Uint16Array;
   /** The geometry's highlight attribute data (1 byte per vertex, 255 = highlighted). */
   highlight: Uint8Array;
   slotOfTri: Int32Array;
   slotCount: number;
 }
 
-export function buildObjectGeometry(obj: ViewObject, paletteBytes: Uint8Array): ObjectGeometry {
+export function buildObjectGeometry(obj: ViewObject): ObjectGeometry {
   const { vertices, tris, mask, states } = obj;
   const triCount = tris.length / 3;
 
@@ -52,7 +39,6 @@ export function buildObjectGeometry(obj: ViewObject, paletteBytes: Uint8Array): 
   for (let i = 0; i < triCount; i++) if (mask[i]) slotOfTri[i] = slotCount++;
 
   const position = new Float32Array(slotCount * 9);
-  const color = new Uint8Array(slotCount * 9);
   for (let i = 0; i < triCount; i++) {
     const slot = slotOfTri[i];
     if (slot < 0) continue;
@@ -65,28 +51,21 @@ export function buildObjectGeometry(obj: ViewObject, paletteBytes: Uint8Array): 
 
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(position, 3));
-  geometry.setAttribute("color", new BufferAttribute(color, 3, true));
+  const vertexStates = new Uint16Array(slotCount * 3);
+  geometry.setAttribute("state", new BufferAttribute(vertexStates, 1)); // read as a float in the shader
   const highlight = new Uint8Array(slotCount * 3);
   geometry.setAttribute("highlight", new BufferAttribute(highlight, 1, true));
-  const result: ObjectGeometry = { geometry, colors: color, highlight, slotOfTri, slotCount };
-  for (let i = 0; i < triCount; i++) if (slotOfTri[i] >= 0) writeTriangleColor(result, i, states[i], paletteBytes);
+  const result: ObjectGeometry = { geometry, vertexStates, highlight, slotOfTri, slotCount };
+  for (let i = 0; i < triCount; i++) if (slotOfTri[i] >= 0) writeTriangleState(result, i, states[i]);
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return result;
 }
 
-function writeTriangleColor(g: ObjectGeometry, tri: number, state: number, paletteBytes: Uint8Array): void {
+function writeTriangleState(g: ObjectGeometry, tri: number, state: number): void {
   const slot = g.slotOfTri[tri];
   if (slot < 0) return;
-  const color = g.colors;
-  const known = state * 3 + 2 < paletteBytes.length;
-  const r = known ? paletteBytes[state * 3] : GRAY;
-  const gr = known ? paletteBytes[state * 3 + 1] : GRAY;
-  const b = known ? paletteBytes[state * 3 + 2] : GRAY;
-  for (let k = 0; k < 3; k++) {
-    const o = slot * 9 + k * 3;
-    color[o] = r; color[o + 1] = gr; color[o + 2] = b;
-  }
+  g.vertexStates[slot * 3] = state; g.vertexStates[slot * 3 + 1] = state; g.vertexStates[slot * 3 + 2] = state;
 }
 
 /** Above this many triangles and share of the drawn ones, sorting for partial uploads is not worth it: upload everything. */
@@ -101,6 +80,7 @@ const WHOLE_UPLOAD_SHARE = 0.25;
 function flagSlotRanges(g: ObjectGeometry, attr: BufferAttribute, slots: Int32Array, n: number, valuesPerSlot: number): void {
   if (n === 0) return;
   if (n > WHOLE_UPLOAD_MIN && n > g.slotCount * WHOLE_UPLOAD_SHARE) {
+    attr.clearUpdateRanges(); // the whole attribute is uploaded, which covers any pending partial ranges
     attr.addUpdateRange(0, g.slotCount * valuesPerSlot);
     attr.needsUpdate = true;
     return;
@@ -117,27 +97,22 @@ function flagSlotRanges(g: ObjectGeometry, attr: BufferAttribute, slots: Int32Ar
 }
 
 /**
- * Rewrites the colors of the given document triangles from `states` and flags the
+ * Rewrites the states of the given document triangles from `states` and flags the
  * changed vertex ranges (one per contiguous run of slots) for upload. Ranges accumulate
  * across calls until three.js uploads them on the next render, so several updates
  * between two renders all survive.
  */
-export function updateTriangleColors(
-  g: ObjectGeometry,
-  states: Uint16Array,
-  triIndices: ArrayLike<number>,
-  paletteBytes: Uint8Array,
-): void {
+export function updateTriangleStates(g: ObjectGeometry, states: Uint16Array, triIndices: ArrayLike<number>): void {
   const slots = new Int32Array(triIndices.length);
   let n = 0;
   for (let i = 0; i < triIndices.length; i++) {
     const tri = triIndices[i];
     const slot = g.slotOfTri[tri];
     if (slot === undefined || slot < 0) continue; // masked or out of range
-    writeTriangleColor(g, tri, states[tri], paletteBytes);
+    writeTriangleState(g, tri, states[tri]);
     slots[n++] = slot;
   }
-  flagSlotRanges(g, g.geometry.getAttribute("color") as BufferAttribute, slots, n, 9);
+  flagSlotRanges(g, g.geometry.getAttribute("state") as BufferAttribute, slots, n, 3);
 }
 
 /** Marks the given document triangles as highlighted (or not) for the region preview. */
@@ -160,10 +135,11 @@ export function isTriangleHighlighted(g: ObjectGeometry, tri: number): boolean {
   return slot !== undefined && slot >= 0 && g.highlight[slot * 3] !== 0;
 }
 
-/** Rewrites every drawn triangle's color from `states` (after the palette changed in bulk). */
-export function rebuildColors(g: ObjectGeometry, states: Uint16Array, paletteBytes: Uint8Array): void {
-  for (let tri = 0; tri < g.slotOfTri.length; tri++) if (g.slotOfTri[tri] >= 0) writeTriangleColor(g, tri, states[tri], paletteBytes);
-  const attr = g.geometry.getAttribute("color") as BufferAttribute;
-  attr.addUpdateRange(0, g.slotCount * 9);
+/** Rewrites every drawn triangle's state from `states` (after states were merged or renumbered). */
+export function rebuildStates(g: ObjectGeometry, states: Uint16Array): void {
+  for (let tri = 0; tri < g.slotOfTri.length; tri++) if (g.slotOfTri[tri] >= 0) writeTriangleState(g, tri, states[tri]);
+  const attr = g.geometry.getAttribute("state") as BufferAttribute;
+  attr.clearUpdateRanges(); // the whole attribute is uploaded, which covers any pending partial ranges
+  attr.addUpdateRange(0, g.slotCount * 3);
   attr.needsUpdate = true;
 }

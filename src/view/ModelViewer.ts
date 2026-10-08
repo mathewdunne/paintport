@@ -7,11 +7,9 @@ import type { BrushTarget, PaintView, PickHit } from "../tools/types";
 import { BrushCursor } from "./brushCursor";
 import { DepthPass, MODEL_LAYER, OVERLAY_LAYER } from "./depthPass";
 import { createGrid, setGridTheme } from "./grid";
+import { ColorSurface } from "./colorSurface";
 import { createSurfaceMaterial } from "./material";
-import {
-  buildObjectGeometry, isTriangleHighlighted, paletteToBytes, rebuildColors, setTriangleHighlight, updateTriangleColors,
-  type ObjectGeometry,
-} from "./objectGeometry";
+import { buildObjectGeometry, isTriangleHighlighted, setTriangleHighlight, type ObjectGeometry } from "./objectGeometry";
 import { ObjectPicker, TriangleList } from "./picking";
 import { VisibilityTest } from "./visibility";
 import type { ViewScene } from "./viewScene";
@@ -45,7 +43,8 @@ export class ModelViewer implements PaintView {
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(FOV, 1, 0.1, 1000);
   private readonly controls: OrbitControls;
-  private readonly material = createSurfaceMaterial();
+  private readonly colors = new ColorSurface();
+  private readonly material = createSurfaceMaterial(this.colors.table);
   private readonly resizeObserver: ResizeObserver;
   private readonly canvas: HTMLCanvasElement;
   private readonly raycaster = new Raycaster();
@@ -53,8 +52,6 @@ export class ModelViewer implements PaintView {
   private readonly brushCursor = new BrushCursor();
   private readonly candidates = new TriangleList();
   private readonly viewListeners = new Set<() => void>();
-  private data: ViewScene | null = null;
-  private paletteBytes: Uint8Array = new Uint8Array(0);
   private objects: ViewObjectEntry[] = [];
   private grid: GridHelper | null = null;
   private highlighted: { entry: ViewObjectEntry; tris: Uint32Array } | null = null;
@@ -116,23 +113,21 @@ export class ModelViewer implements PaintView {
       this.buildScene(data);
     } catch (error) {
       this.clearObjects();
-      this.data = null;
       this.onError(error);
     }
   }
 
   private buildScene(data: ViewScene | null): void {
     this.clearObjects();
-    this.data = data;
     if (!data) {
       this.requestRender();
       this.notifyViewChange();
       return;
     }
-    this.paletteBytes = paletteToBytes(data.palette);
+    this.colors.setScene(data);
     const bounds = new Box3();
     data.objects.forEach((obj, index) => {
-      const geo = buildObjectGeometry(obj, this.paletteBytes);
+      const geo = buildObjectGeometry(obj);
       if (geo.slotCount === 0) {
         geo.geometry.dispose();
         return;
@@ -140,6 +135,7 @@ export class ModelViewer implements PaintView {
       const mesh = new Mesh(geo.geometry, this.material);
       mesh.layers.set(MODEL_LAYER);
       this.scene.add(mesh);
+      this.colors.add(index, geo);
       this.objects.push({ index, mesh, geo, picker: null });
       bounds.union(geo.geometry.boundingBox!);
     });
@@ -155,42 +151,44 @@ export class ModelViewer implements PaintView {
   }
 
   /**
-   * Re-reads the given triangles' states from the scene and recolors them. `objectIndex`
-   * and the triangle indices are document indices (as in `ViewScene.objects`).
+   * Re-reads the given triangles' states from the scene and rewrites them in the state
+   * attribute. `objectIndex` and the triangle indices are document indices (as in
+   * `ViewScene.objects`).
    */
-  updateTriangleColors(objectIndex: number, triIndices: ArrayLike<number>): void {
-    if (!this.data) return;
-    const obj = this.objects.find((o) => o.index === objectIndex);
-    if (!obj) return;
-    updateTriangleColors(obj.geo, this.data.objects[objectIndex].states, triIndices, this.paletteBytes);
-    this.requestRender();
+  updateTriangleStates(objectIndex: number, triIndices: ArrayLike<number>): void {
+    if (this.colors.updateTriangleStates(objectIndex, triIndices)) this.requestRender();
   }
 
   /**
-   * Installs a new palette. `changed` lists the states whose color value changed: only the
-   * triangles showing them are recolored. "all" recolors every triangle (after states were
-   * merged or renumbered; the scene's `states` must already be up to date).
+   * Re-reads every triangle's state from the scene (after states were merged or
+   * renumbered; the scene's `states` must already be up to date) and rewrites the whole
+   * state attribute of every object.
    */
-  setPalette(palette: string[], changed: readonly number[] | "all"): void {
-    if (!this.data) return;
-    this.data.palette = palette;
-    this.paletteBytes = paletteToBytes(palette);
-    for (const obj of this.objects) {
-      const states = this.data.objects[obj.index].states;
-      if (changed === "all") {
-        rebuildColors(obj.geo, states, this.paletteBytes);
-        continue;
-      }
-      const flagged = new Uint8Array(Math.max(palette.length, ...changed.map((s) => s + 1)));
-      for (const s of changed) flagged[s] = 1;
-      let n = 0;
-      for (let t = 0; t < states.length; t++) if (states[t] < flagged.length && flagged[states[t]] === 1) n++;
-      if (n === 0) continue;
-      const tris = new Uint32Array(n);
-      n = 0;
-      for (let t = 0; t < states.length; t++) if (states[t] < flagged.length && flagged[states[t]] === 1) tris[n++] = t;
-      updateTriangleColors(obj.geo, states, tris, this.paletteBytes);
-    }
+  refreshStates(): void {
+    if (this.colors.refreshStates()) this.requestRender();
+  }
+
+  /**
+   * Installs the Design colors ("#RRGGBB" per state). A texture upload only: no geometry
+   * attribute is written, whatever changed. Shown while no Print colors are set.
+   */
+  setPalette(palette: string[]): void {
+    if (this.colors.setPalette(palette)) this.requestRender();
+  }
+
+  /**
+   * Chooses the color table the surface is drawn with. Null shows the Design colors (the
+   * palette, the default). An array shows the Print view: `colors[state]` ("#RRGGBB") for
+   * each design state, where an entry that is missing or undefined keeps that state's
+   * design color. A texture upload only, so it is cheap to call on every mapping or spool
+   * edit. It survives `setScene`: the caller owns it and resets it for a new project.
+   *
+   * The viewer does not follow the project: entries derived from design colors (an Auto
+   * mapping's nearest spool or blend) must be recomputed and set again by the caller on
+   * every palette event and every mapping event, or the Print view goes stale.
+   */
+  setPrintColors(colors: readonly (string | undefined)[] | null): void {
+    this.colors.setPrintColors(colors);
     this.requestRender();
   }
 
@@ -227,6 +225,7 @@ export class ModelViewer implements PaintView {
     this.brushCursor.dispose();
     this.depthPass.dispose();
     this.material.dispose();
+    this.colors.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss(); // free the GPU context now (StrictMode/HMR remount the viewer)
     this.canvas.remove();
@@ -379,6 +378,7 @@ export class ModelViewer implements PaintView {
       o.geo.geometry.dispose();
     }
     this.objects = [];
+    this.colors.setScene(null);
     this.brushCursor.hide();
     if (this.grid) {
       this.scene.remove(this.grid);

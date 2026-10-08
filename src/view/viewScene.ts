@@ -9,7 +9,7 @@ export interface ViewObject {
   transform: string | null;
   /**
    * Resolved design state per triangle (index into `palette`). Owned by the caller, who
-   * changes entries and then calls `ModelViewer.updateTriangleColors`.
+   * changes entries and then calls `ModelViewer.updateTriangleStates`.
    */
   states: Uint16Array;
   /** 1 = draw this triangle, 0 = skip it (negative volumes, modifiers, ...). */

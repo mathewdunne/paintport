@@ -1,6 +1,7 @@
 import { DoubleSide, MeshLambertMaterial } from "three";
+import type { ColorTable } from "./colorTable";
 
-// Vertex colors hold sRGB bytes. three.js treats vertex colors as linear light, so the
+// The color table holds sRGB bytes. three.js treats vertex colors as linear light, so the
 // vertex shader converts them; a #FF0000 swatch then renders as that red under neutral
 // light (the renderer's sRGB output encoding converts back).
 export const SRGB_TO_LINEAR_GLSL = /* glsl */ `
@@ -12,30 +13,35 @@ vec3 ppSrgbToLinear( vec3 c ) {
 /**
  * Returns the patched vertex shader; throws if three.js no longer includes color_vertex.
  *
+ * The vertex color is not read from a color attribute: the `state` attribute (the
+ * triangle's design state, equal on its 3 vertices, so the color stays flat) indexes the
+ * `ppColorTable` texture (256 texels per row, see colorTable.ts) and the texel is
+ * linearized.
+ *
  * Also adds the `highlight` attribute (0..1 per vertex) that marks the region a fill would
  * paint: the color is mixed toward near-black on light surfaces and toward white on dark
  * ones, so the preview stands out on any color.
  */
 export function patchVertexShader(vertexShader: string): string {
   if (!vertexShader.includes("#include <color_vertex>")) throw new Error("vertex shader has no color_vertex include");
-  return "attribute float highlight;\n" + SRGB_TO_LINEAR_GLSL + vertexShader.replace(
+  return "attribute float state;\nattribute float highlight;\nuniform sampler2D ppColorTable;\n" + SRGB_TO_LINEAR_GLSL + vertexShader.replace(
     "#include <color_vertex>",
-    `#include <color_vertex>
-#ifdef USE_COLOR
-	vColor.rgb = ppSrgbToLinear( color );
-	float ppLuma = dot( vColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
-	vColor.rgb = mix( vColor.rgb, ppLuma > 0.18 ? vec3( 0.02 ) : vec3( 0.95 ), highlight * 0.6 );
+    `#ifdef USE_COLOR
+	int ppState = int( state + 0.5 );
+	vec3 ppLinear = ppSrgbToLinear( texelFetch( ppColorTable, ivec2( ppState & 255, ppState >> 8 ), 0 ).rgb );
+	float ppLuma = dot( ppLinear, vec3( 0.2126, 0.7152, 0.0722 ) );
+	vColor = vec4( mix( ppLinear, ppLuma > 0.18 ? vec3( 0.02 ) : vec3( 0.95 ), highlight * 0.6 ), 1.0 );
 #endif`,
   );
 }
 
 /**
- * Flat-shaded Lambert surface with per-vertex sRGB colors. Flat shading derives the
- * normal from screen-space derivatives, so no normal attribute is needed.
+ * Flat-shaded Lambert surface whose per-triangle color comes from `table`. Flat shading
+ * derives the normal from screen-space derivatives, so no normal attribute is needed.
  */
-export function createSurfaceMaterial(): MeshLambertMaterial {
+export function createSurfaceMaterial(table: ColorTable): MeshLambertMaterial {
   const material = new MeshLambertMaterial({
-    vertexColors: true,
+    vertexColors: true, // enables the vColor path; the values come from the table, not a color attribute
     flatShading: true,
     side: DoubleSide, // tolerate open or inverted-normal meshes
     // Push the surface back a little so the ground grid wins where they touch.
@@ -45,7 +51,8 @@ export function createSurfaceMaterial(): MeshLambertMaterial {
   });
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = patchVertexShader(shader.vertexShader);
+    shader.uniforms.ppColorTable = table.uniform;
   };
-  material.customProgramCacheKey = () => "paintport-srgb-vertex-colors-highlight";
+  material.customProgramCacheKey = () => "paintport-state-color-table-highlight";
   return material;
 }
