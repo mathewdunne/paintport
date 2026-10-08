@@ -25,8 +25,9 @@ textured-model import, arranging/transforming objects, multiple saved projects, 
 - three.js for rendering, three-mesh-bvh for brush/ray/shape queries.
 - npm, Vitest for unit tests. _default_
 - GitHub Pages deploys via a GitHub Actions workflow that runs the Vite build. Pages
-  source must be set to **"GitHub Actions"** in repo settings. Vite `base: "./"` so it
-  works under `/paintport/`. (Q1.3)
+  source must be set to **"GitHub Actions"** in repo settings, and `paintportplus` must
+  be allowed under Settings → Environments → github-pages → Deployment branches (the
+  default only allows `main`). Vite `base: "./"` so it works under `/paintport/`. (Q1.3)
 - The original single-file tool stays reachable at **`/classic/`** (copied verbatim from
   `index.html`) until the new app reaches mapping parity. (Q1.2)
 - UI is English only, with every user-facing string in one module so i18n can be added
@@ -158,7 +159,7 @@ src/
   view/      three.js scene, BVH, color-buffer sync, camera controls, hover preview
   ui/        React + shadcn components
   strings.ts all user-facing text
-classic/     index.html copied verbatim from main
+public/classic/index.html   the original tool, moved from the repo root (served at /classic/)
 test/        existing .mjs suites + Vitest specs
 ```
 
