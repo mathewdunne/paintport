@@ -256,6 +256,7 @@ export class PaintController {
           break;
         case "shellFill":
         case "smartFill":
+        case "replaceColor":
           this.fillAt(e.clientX, e.clientY);
           break;
         case "guidedFill":
@@ -473,9 +474,12 @@ export class PaintController {
   }
 
   private fillRegion(hit: PickHit): Uint32Array {
-    return this.settings.tool === "shellFill"
-      ? this.project.shellFillRegion(hit.object, hit.tri)
-      : this.project.smartFillRegion(hit.object, hit.tri, this.settings.smartAngle, this.objectScale(hit.object, hit.point));
+    switch (this.settings.tool) {
+      case "shellFill": return this.project.shellFillRegion(hit.object, hit.tri);
+      // Smart fill without an edge limit: the connected patch that shows the clicked color (spec Q11).
+      case "replaceColor": return this.project.smartFillRegion(hit.object, hit.tri, 180);
+      default: return this.project.smartFillRegion(hit.object, hit.tri, this.settings.smartAngle, this.objectScale(hit.object, hit.point));
+    }
   }
 
   /** The smart fill feature size in the object's own units (0 = off): the mesh's own when automatic. */
@@ -634,9 +638,10 @@ export class PaintController {
    * last computation was slow (a huge region), recomputation waits until the pointer rests.
    */
   private previewFill(hit: PickHit): void {
-    const key = `${this.settings.tool}|${hit.object}|${this.settings.activeState}|${this.settings.tool !== "shellFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}|${this.settings.smartScaleSensitivity ?? "default"}` : ""}|${this.epoch}`;
+    const smart = this.settings.tool !== "shellFill" && this.settings.tool !== "replaceColor"; // uses the smart fill settings
+    const key = `${this.settings.tool}|${hit.object}|${this.settings.activeState}|${smart ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}|${this.settings.smartScaleSensitivity ?? "default"}` : ""}|${this.epoch}`;
     const undirected = this.settings.tool === "shellFill" ||
-      (this.objectScale(hit.object, hit.point) === 0 && !this.project.topology(hit.object).nonManifoldLinks?.size);
+      ((!smart || this.objectScale(hit.object, hit.point) === 0) && !this.project.topology(hit.object).nonManifoldLinks?.size);
     if (key === this.fillKey && (undirected || hit.tri === this.fillSeed) && this.view.isRegionHighlighted(hit.object, hit.tri)) return;
     // No preview where a fill would change nothing, e.g. right after filling there: the region
     // already shows the active color. Smart fill only covers the seed's color, so the seed tells.
@@ -675,7 +680,7 @@ export class PaintController {
    * triangles) and a fill needs it: do it when a fill tool is chosen, not at the first hover.
    */
   private warmFillData(): void {
-    if (this.settings.tool !== "shellFill" && this.settings.tool !== "smartFill" && this.settings.tool !== "guidedFill" && this.settings.tool !== "aiPaint") return;
+    if (this.settings.tool !== "shellFill" && this.settings.tool !== "smartFill" && this.settings.tool !== "replaceColor" && this.settings.tool !== "guidedFill" && this.settings.tool !== "aiPaint") return;
     this.env.clearTimer(this.warmTimer);
     this.warmTimer = this.env.setTimer(() => {
       if (!this.disposed) this.project.objects.forEach((_, i) => this.project.topology(i));

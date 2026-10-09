@@ -1,4 +1,4 @@
-import { Box, Brush, Eraser, MousePointerClick, PaintBucket, Pipette, Sparkles } from "lucide-react";
+import { Box, Brush, Eraser, MousePointerClick, PaintBucket, Pipette, Replace, Sparkles } from "lucide-react";
 import { strings } from "@/strings";
 import type { ToolId } from "@/tools/types";
 
@@ -14,5 +14,6 @@ export const TOOLS: { id: ToolId; label: string; hint: string; key: string; Icon
   { id: "guidedFill", label: strings.tools.guidedFill, hint: strings.tools.hints.guidedFill, key: "G", Icon: MousePointerClick, region: true },
   { id: "aiPaint", label: strings.tools.aiPaint, hint: strings.tools.hints.aiPaint, key: "A", Icon: Sparkles, region: true },
   { id: "eraser", label: strings.tools.eraser, hint: strings.tools.hints.eraser, key: "E", Icon: Eraser },
+  { id: "replaceColor", label: strings.tools.replaceColor, hint: strings.tools.hints.replaceColor, key: "R", Icon: Replace },
   { id: "eyedropper", label: strings.tools.eyedropper, hint: strings.tools.hints.eyedropper, key: "I", Icon: Pipette },
 ];

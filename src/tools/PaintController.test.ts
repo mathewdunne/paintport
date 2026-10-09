@@ -599,8 +599,39 @@ describe("fills", () => {
     expect(scales).toEqual([0.4]);
   });
 
+  it("replace color repaints the connected patch of the clicked color at any angle, as one undo step", () => {
+    const { project, down, up } = setup({ tool: "replaceColor", smartAngle: 5 }); // the smart fill angle doesn't apply
+    down(); up();
+    expect(painted(project)).toHaveLength(12);
+    expect(project.undoCount).toBe(1);
+    project.undo();
+    expect(painted(project)).toEqual([]);
+  });
+
+  it("replace color takes only the clicked color: other colors stop it and stay as they are", () => {
+    const { project, down, up } = setup({ tool: "replaceColor" });
+    const face = Array.from(project.smartFillRegion(0, 4, 30)).sort((a, b) => a - b); // the clicked triangle's face
+    const others = Array.from({ length: 12 }, (_, t) => t).filter((t) => !face.includes(t));
+    project.paintTriangles(0, face, 3);
+    down(); up(); // the face shows color 3: only it changes
+    expect(painted(project)).toEqual(face);
+    expect(face.every((t) => project.stateShownAt(0, t) === 2)).toBe(true);
+    expect(others.every((t) => project.stateShownAt(0, t) === 1)).toBe(true);
+    project.paintTriangles(0, others, 3);
+    project.paintTriangles(0, face, 0); // now the unpainted face is walled in by color 3
+    down(); up();
+    expect(face.every((t) => project.stateShownAt(0, t) === 2)).toBe(true);
+    expect(others.every((t) => project.stateShownAt(0, t) === 3)).toBe(true);
+  });
+
+  it("replace color stays on the clicked shell", () => {
+    const { project, down, up } = setup({ tool: "replaceColor" }, joinMeshes(cubeMesh(), cubeMesh([5, 0, 0])));
+    down(); up();
+    expect(painted(project)).toEqual(Array.from({ length: 12 }, (_, t) => t)); // the other cube keeps its color
+  });
+
   it("shows no preview where a fill would change nothing, so a fill shows its color at once", () => {
-    for (const tool of ["smartFill", "shellFill"] as const) {
+    for (const tool of ["smartFill", "shellFill", "replaceColor"] as const) {
       const { project, view, env, hover, down, up, controller } = setup({ tool });
       hover(50); env.frame();
       expect(view.region, tool).not.toBeNull();
@@ -747,7 +778,7 @@ describe("hover feedback", () => {
 
 describe("disabled (Print view, view-only)", () => {
   it("a left press paints nothing, whatever the tool", () => {
-    for (const tool of ["brush", "eraser", "shellFill", "smartFill"] as const) {
+    for (const tool of ["brush", "eraser", "shellFill", "smartFill", "replaceColor"] as const) {
       const { project, controller, down, up } = setup({ tool });
       controller.setEnabled(false);
       down();

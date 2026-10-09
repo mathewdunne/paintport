@@ -30,6 +30,7 @@ export const strings = {
     guidedFill: "Guided fill",
     aiPaint: "AI Paint",
     eraser: "Eraser",
+    replaceColor: "Replace color",
     eyedropper: "Eyedropper",
     /** The group of tools that each pick a region a different way. */
     regionGroup: "Fill tools",
@@ -40,6 +41,7 @@ export const strings = {
       guidedFill: "Click on the area to paint, Shift+click where the color must not go, and repeat until the desired area is covered. Then press Enter.",
       aiPaint: "Click a feature, and an AI model works out its outline from how it looks, even where there's no sharp edge. Shift+click to leave areas out, then press Enter.",
       eraser: "Drag over the model to remove paint and show the base color again.",
+      replaceColor: "Click a color on the model to repaint the connected area of that color with the active color, however sharp its edges.",
       eyedropper: "Click the model to make the color there your active color. Alt+click does the same from any tool.",
     },
   },

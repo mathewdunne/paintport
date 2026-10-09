@@ -116,11 +116,19 @@ all unpainted surface of that object. Exports keep the slicer's base-extruder se
   Yoshi, one inside click on the eye dome (228k triangles, leaking into the head) plus one
   outside click on the head gives the dome alone (10k); ~0.1-0.15 s per mark at 500k
   triangles.
+- **Replace color** (Q11.1–Q11.5, key `R`; phase 4's "select by color"): click the model
+  and the connected patch showing the clicked color takes the active color at once, as one
+  undo step, with the fills' hover preview. The patch spreads across shared mesh edges at
+  any angle, like smart fill with no edge limit (non-manifold edges and duplicate faces
+  behave as there); it stays on its mesh piece, so touching parts and objects are not
+  joined, and specks of other colors inside it are left alone. Unpainted triangles count
+  as their base color. No settings.
 - **Eraser**: brush that paints state 0 (base). Also available as a modifier while
   brushing (_default: hold `Shift`_).
 - **Undo/redo**: `Ctrl+Z` / `Ctrl+Shift+Z`, _default 200 steps_.
 
-Deferred to phase 4: mirror painting, lasso/box select, select-by-color.
+Deferred to phase 4: mirror painting, lasso/box select. (Select by color came in as
+Replace color, Q11.)
 
 ### AI Paint (Q10.1–Q10.11)
 Measured on Yoshi (about 200k triangles, WebGPU, SlimSAM-77 fp32): encode 1.4 s for the first view (shader compile), 0.44 s after; decode about 1 s on the first click; lifting 46 ms; race about 0.7 s. One click on the eye dome selected it cleanly (about 3,400 triangles in the app).
@@ -217,7 +225,8 @@ The third is phase 5's job and AI Paint doesn't fix it.
 +--+------------------------+-------------------+
 ```
 - Left: tool rail with an icon and a name per tool (Brush, Object paint, Smart fill,
-  Guided fill, AI Paint, Eraser, Eyedropper). Smart fill, guided fill and AI Paint sit in
+  Guided fill, AI Paint, Eraser, Replace color, Eyedropper; Replace color sits by the
+  Eyedropper as the other tool driven by a clicked color, Q11.5). Smart fill, guided fill and AI Paint sit in
   one boxed group labeled "Fill tools", since each picks a region its own way and stands in for the others when
   one fails. Tooltips give a few-word description and the shortcut key.
 - Right: one panel with tabs. **Paint** = palette and active tool settings.
@@ -237,7 +246,7 @@ Desktop mouse/trackpad only; touch can view but painting isn't tuned for it.
 | Wheel | Zoom |
 | Alt+left drag | Orbit (trackpad) |
 | `Shift` held while brushing | Erase _default_ |
-| `B` `F` `S` `G` `E` `I` | Brush, Object paint, Smart fill, Guided fill, Eraser, Eyedropper _default_ |
+| `B` `F` `S` `G` `E` `R` `I` | Brush, Object paint, Smart fill, Guided fill, Eraser, Replace color, Eyedropper _default_ |
 | `[` `]` | Brush radius |
 | Guided fill: click / Shift+click | Inside / outside mark |
 | Guided fill: `Enter` / `Esc` / `Backspace` | Paint the region / clear the marks / remove the last mark |
@@ -492,6 +501,10 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
 4. **More selection tools**: mirror painting, lasso/box (with paint through),
    select-by-color, maybe texture bake. (Guided fill, Q9.4, came in ahead of these, and so
    does AI Paint, Q10: spike first, plan in `docs/plans/2026-10-09-ai-paint.md`.)
+   Select by color is done as **Replace color** (Q11, section 3). The user wants only that
+   for now; mirror painting, lasso/box and texture bake wait until asked for (their open
+   questions were drafted 2026-10-09: mirror plane, mirrored visibility, pending selection
+   vs. immediate paint, inclusion rule, texture import).
 5. **Sub-triangle precision**: decide between option 2 and option 3, starting with a
    time-boxed spike on option 2's split geometry.
 
@@ -547,3 +560,8 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q10.9 | Existing paint | Keep other colors: only the first click's color can join the region |
 | Q10.10 | Spike bar | Beats guided fill on Yoshi (eye dome blend, pupil highlight, shell, shell rim; ≤3 clicks each) and ≤2 s per view on WebGPU; small models only, no SAM 2.1-tiny reference |
 | Q10.11 | Model | Small Apache-2.0 SAM-1-class model chosen by the spike (SlimSAM-77, MobileSAM, EfficientSAM-Ti) _default list_ |
+| Q11.1 | Select by color: action | Repaint at once with the active color (a fill, one undo step, hover preview); not a pending selection, not highlight-only |
+| Q11.2 | Select by color: scope | The connected patch of the clicked color (no object/everywhere switch; the palette's merge covers everywhere) |
+| Q11.3 | Patch reach | Stays on its mesh piece, like the other fills: no spreading into touching parts or objects |
+| Q11.4 | Specks inside the patch | Left alone: only triangles showing the clicked color change |
+| Q11.5 | Name and place | "Replace color", key `R`, in the rail next to the Eyedropper (outside the Fill tools group) |
