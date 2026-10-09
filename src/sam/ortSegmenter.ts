@@ -3,6 +3,7 @@
 // never fetches anything itself. The class takes the runtime pieces as parameters so it runs
 // in Node tests with fakes; `createOrtSegmenter` wires in the real runtime.
 import { toPixelValues } from "./image";
+import { ORT_MJS_URL } from "./loadModel";
 import type { SamManifest } from "./manifest";
 import { cropToImage } from "./masks";
 import type { SamEmbedding, SamImage, SamMask, SamPoint, Segmenter } from "./types";
@@ -100,6 +101,7 @@ export class OrtSegmenter implements Segmenter {
 export async function createOrtSegmenter(manifest: SamManifest, files: { encoder: Uint8Array; decoder: Uint8Array; wasm: Uint8Array }): Promise<Segmenter> {
   const ort = await import("onnxruntime-web/webgpu");
   ort.env.wasm.wasmBinary = files.wasm;
+  ort.env.wasm.wasmPaths = { mjs: ORT_MJS_URL };
   ort.env.wasm.numThreads = 1; // GitHub Pages is not cross-origin isolated, so no threads
   const options = { executionProviders: ["webgpu"] };
   const encoder = await ort.InferenceSession.create(files.encoder, options);
