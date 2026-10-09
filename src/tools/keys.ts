@@ -5,6 +5,7 @@ export const TOOL_KEYS: Record<string, ToolId> = { B: "brush", F: "shellFill", S
 export type KeyAction =
   | { type: "tool"; tool: ToolId }
   | { type: "radius"; direction: -1 | 1 }
+  | { type: "color"; state: number }
   | { type: "undo" }
   | { type: "redo" };
 
@@ -35,6 +36,8 @@ export function interpretKey(e: KeyLike, typing: boolean): KeyAction | null {
   if (key === "[" && (altGr || !e.altKey)) return { type: "radius", direction: -1 };
   if (key === "]" && (altGr || !e.altKey)) return { type: "radius", direction: 1 };
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  // Digits pick the swatch with that number (the number shown on it); 1-9 only.
+  if (key >= "1" && key <= "9" && key.length === 1) return { type: "color", state: Number(key) };
   const tool = TOOL_KEYS[key.toUpperCase()];
   return tool ? { type: "tool", tool } : null;
 }

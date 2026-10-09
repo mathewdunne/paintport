@@ -9,12 +9,13 @@ interface ShortcutHandlers {
   project: Project | null;
   onTool: (tool: ToolId) => void;
   onRadius: (direction: -1 | 1) => void;
+  onColor: (state: number) => void;
   /** False in the Print view: it is view-only, so no editor shortcut applies. */
   toolsEnabled: boolean;
 }
 
 /**
- * Global editor shortcuts: tools (B F S E I), brush radius ([ ]) and undo/redo
+ * Global editor shortcuts: tools (B F S E I), colors (1-9), brush radius ([ ]) and undo/redo
  * (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y). While the tools are off (Print view, which is view-only) no shortcut applies.
  * Ignored while the focus is in a text field, popover, menu, dialog or the color picker (see
  * shortcutGuard.ts), where those keys belong to the widget.
@@ -27,9 +28,13 @@ export function useEditorShortcuts(handlers: ShortcutHandlers) {
     const onKeyDown = (e: KeyboardEvent) => {
       const action = interpretKey(e, blocksShortcuts(e.target));
       if (!action) return;
-      const { project, onTool, onRadius, toolsEnabled } = latest.current;
+      const { project, onTool, onRadius, onColor, toolsEnabled } = latest.current;
       if (!keyActionAllowed(action, toolsEnabled)) return;
       switch (action.type) {
+        case "color":
+          // Palette index 0 is the unpainted state; swatch N is state N.
+          if (project && action.state < project.palette.length) onColor(action.state);
+          break;
         case "tool":
           if (!e.repeat) onTool(action.tool);
           break;

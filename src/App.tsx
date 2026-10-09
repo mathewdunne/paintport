@@ -36,7 +36,7 @@ export default function App() {
   useEffect(() => {
     if (aiUnavailable && settings.tool === "aiPaint") patch({ tool: "brush" });
   }, [aiUnavailable, settings.tool, patch]);
-  useEditorShortcuts({ project, onTool: chooseTool, onRadius: step, toolsEnabled: toolsOn });
+  useEditorShortcuts({ project, onTool: chooseTool, onRadius: step, onColor: (activeState) => patch({ activeState }), toolsEnabled: toolsOn });
 
   const [tab, setTab] = useState<PanelTab>("paint");
   const { settings: exportSettings, update: updateExportSettings } = useExportSettings();
