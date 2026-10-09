@@ -1,7 +1,7 @@
 # PaintPort+ — plan & spec
 
-Status: **phases 1–3 done (phase 3 awaiting the user's hands-on test).** The decisions below came from five
-question waves with the user (IDs like Q2.1 refer to section 7). Items marked
+Status: **phases 1–3 done (phase 3 awaiting the user's hands-on test). AI Paint (SAM) implemented on branch `ai-paint`,
+awaiting the user's hands-on test (Q10).** The decisions below came from question waves with the user (IDs like Q2.1 refer to section 7). Items marked
 _default_ are my calls on things we didn't discuss; push back on any of them.
 
 ## 1. Goal
@@ -35,6 +35,12 @@ textured-model import, arranging/transforming objects, multiple saved projects, 
   dropped on this branch. (Q1.4)
 - Everything stays client-side and offline at runtime: no network requests, no
   analytics. Dependencies are bundled. _default, carried over from PaintPort_
+  Relaxed for AI Paint (Q10.6): the rule came from upstream PaintPort, and the user doesn't
+  need it on this branch. The SAM model weights are fetched from Hugging Face on first use,
+  after the user agrees to the download, at a pinned revision, checked against SHA-256 and
+  kept in the browser's Cache API so later sessions work offline. Everything else stays
+  bundled (the ONNX Runtime `.wasm` included), and the app must load and work without the
+  model.
 - License stays AGPL-3.0. Formats are reimplemented, never copied from slicer sources.
 
 ## 3. Product behavior
@@ -112,6 +118,75 @@ all unpainted surface of that object. Exports keep the slicer's base-extruder se
 
 Deferred to phase 4: mirror painting, lasso/box select, select-by-color.
 
+### AI Paint (Q10.1–Q10.11)
+Measured on Yoshi (about 200k triangles, WebGPU, SlimSAM-77 fp32): encode 1.4 s for the first view (shader compile), 0.44 s after; decode about 1 s on the first click; lifting 46 ms; race about 0.7 s. One click on the eye dome selected it cleanly (about 3,400 triangles in the app).
+A Segment Anything (SAM) model running in the browser picks regions by appearance, where
+smart and guided fill only see local geometry. Guided fill still fails on Yoshi in three
+ways: features shallower than the sculpt noise (the highlight in the pupil), regions with
+no crease at all (where the eye dome blends into the head), and jagged staircase boundaries.
+The third is phase 5's job and AI Paint doesn't fix it.
+
+- **Scope (Q10.1)**: click-to-segment on the current view with a small model. SAMesh-style
+  automatic whole-model segmentation (multi-view renders, automatic masks, merging into
+  parts; arXiv 2408.13679) is a possible later phase on the same render → SAM → lift
+  pipeline, decided after we see real masks. No text prompts: SAM 3 has them, but it is
+  ~840M parameters (~3.4 GB) under Meta's custom SAM License with use restrictions.
+- **Tool (Q10.2)**: a new rail tool **"AI Paint"** (key `A`) with guided fill's flow. Click
+  marks build a pending region that is highlighted with badges and the viewport bar, `Enter`
+  paints it with the active color as one undo step, `Esc` clears it, `Backspace` removes the
+  last mark. A mark on another object starts over. It is disabled in the Print view like
+  every tool. Guided fill stays as it is.
+- **Prompts (Q10.3)**: click = positive point, Shift+click = negative point (SAM's own
+  prompt types). No boxes or scribbles.
+- **Mask scale (Q10.8)**: for a single click SAM returns three candidates (e.g. pupil / eye
+  / head). The highest-scored one is used, and `Tab` steps through the three. With 2+
+  points in a view the points already pin down the scale, so the highest-scored mask is
+  used and `Tab` does nothing.
+- **What SAM sees**: an offscreen render of the current camera pose at SAM's input size
+  (1024 px on the long side), drawn from the model layer only. Which look (the shaded
+  design colors as on screen, view-space normals, a neutral "clay" shading, or a mix) is
+  decided by the spike. The image is encoded once per camera pose, lazily on the first
+  click after the camera settles, and reused for every click in that pose.
+- **Mask → triangles**: a triangle belongs to a view's mask when its centroid is visible in
+  that view (the depth test the visible-only brush uses, `src/view/visibility.ts`, so
+  sub-pixel triangles on dense meshes aren't lost the way they would be with an ID buffer)
+  and the mask covers the centroid's pixel. Whole triangles only, so the boundaries are as
+  jagged as today's fills until phase 5.
+- **Existing paint (Q10.9)**: only triangles that currently show the same color as the
+  first click's triangle can join the region. Other colors are left alone, as with the fills.
+- **Hidden surface (Q10.4)**: geometry carries the region on. The mask's triangles seed
+  guided fill's inside flood and the visible triangles outside the mask seed its outside
+  flood. The race (`src/doc/guidedFill.ts`, with the smart fill settings) then decides the
+  surface no view has seen, so the region wraps round the back where the geometry agrees.
+- **Orbiting (Q10.5)**: views add up. Marks are points on the surface. After the camera
+  moves, a click prompts SAM in the new view with every mark visible there. Masks from
+  earlier views are kept, and the region's inside seeds are the union of every view's mask.
+  Its outside seeds are the triangles some view saw outside its mask that no mask covers.
+  A Shift+click shapes only the mask of the view it was made in. `Backspace` removes the
+  last mark and re-decodes its view.
+- **Hardware (Q10.7)**: WebGPU only. Without it (or when the adapter or session fails),
+  the tool is disabled with the reason and a pointer to guided fill. No WASM fallback:
+  GitHub Pages can't send the COOP/COEP headers that threaded WASM needs, so it would run
+  single-threaded.
+- **Model and delivery (Q10.6, Q10.11)**: a small SAM-1-class model under Apache-2.0
+  (SlimSAM-77, MobileSAM or EfficientSAM-Ti, chosen by the spike; EdgeSAM is excluded for
+  its possibly non-commercial license, and SAM 2.1-tiny at ~150 MB isn't tried, Q10.10).
+  The weights (~10–40 MB) are not in the repo. They are fetched from Hugging Face the first
+  time AI Paint is chosen, after a prompt that states the size, with progress, from URLs
+  pinned to a commit (`/resolve/<sha>/`). They're stored in the Cache API and checked against
+  SHA-256 hashes in a bundled manifest. The onnxruntime-web WebGPU runtime (MIT, ~21 MB
+  `.wasm`) is a same-origin build asset, cached the same way. onnxruntime-web must not
+  fetch its `.wasm` from a CDN (its examples point at jsDelivr). The panel credits the model
+  and its license.
+- **Spike first (Q10.10)**: before any UI work, a dev-only harness runs the candidate
+  models on renders of the user's Yoshi. Go only if, with ≤3 clicks each, SAM gets the eye
+  dome where it blends into the head, the pupil highlight, the shell and the shell rim
+  better than guided fill does, and a new view is encoded in ≤2 s on WebGPU. Otherwise the
+  findings go into this section and AI Paint stops there.
+- Defaults (_default_): pending marks and per-view masks are not autosaved; the encoding
+  runs on the main thread unless the spike shows jank; the panel shows only availability,
+  download and status, since geometry carry uses the smart fill settings.
+
 ### Viewport (Q3.2, Q4.3)
 - Toggle **Design** (design colors) / **Print** (each design color replaced by its mapped
   spool or predicted blend color), overlaid on the viewport.
@@ -153,6 +228,7 @@ Desktop mouse/trackpad only; touch can view but painting isn't tuned for it.
 | `[` `]` | Brush radius |
 | Guided fill: click / Shift+click | Inside / outside mark |
 | Guided fill: `Enter` / `Esc` / `Backspace` | Paint the region / clear the marks / remove the last mark |
+| AI Paint (planned): `A`; click / Shift+click; `Tab` | Tool; include / exclude point; next mask candidate. `Enter` / `Esc` / `Backspace` as guided fill |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 
 Note: Alt+click is also the eyedropper. To resolve the conflict, Alt+**click** without
@@ -401,7 +477,8 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
      (orbit/pan/zoom still work). Explicit edits in the Paint and Objects tabs stay
      available. The Export tab does not switch the view by itself.
 4. **More selection tools**: mirror painting, lasso/box (with paint through),
-   select-by-color, maybe texture bake. (Guided fill, Q9.4, came in ahead of these.)
+   select-by-color, maybe texture bake. (Guided fill, Q9.4, came in ahead of these, and so
+   does AI Paint, Q10: spike first, plan in `docs/plans/2026-10-09-ai-paint.md`.)
 5. **Sub-triangle precision**: decide between option 2 and option 3, starting with a
    time-boxed spike on option 2's split geometry.
 
@@ -446,3 +523,14 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q9.2 | Smart fill defaults | Edge angle 20° (was 30° edge by edge); feature size 0.2 mm, later Auto (Q9.3) |
 | Q9.3 | Smart fill controls | One "Edge sensitivity" slider; edge angle and feature size under a remembered Advanced section; feature size Auto per mesh; sliders remembered; Reset to defaults |
 | Q9.4 | Click inside/outside fill | Separate "Guided fill" tool: marks build a pending region, Enter paints; cheapest-path race between inside and outside floods (not graph cut: no shrinking toward single clicks; not random walk: no big solve per click) |
+| Q10.1 | SAM scope | Click-to-segment on the current view with a small model; SAMesh-style automatic part segmentation maybe later on the same pipeline (user first asked for SAMesh, then chose this once the cost was clear: many views, automatic masks, SDF, clustering, ~150 MB SAM2, WebGPU-only); no text prompts (SAM 3: ~3.4 GB, restrictive license) |
+| Q10.2 | SAM tool | New "AI Paint" tool with guided fill's pending-region flow; guided fill unchanged |
+| Q10.3 | SAM prompts | Click / Shift+click as positive / negative points |
+| Q10.4 | Hidden surface | Geometry carries the region on: mask seeds the guided fill race (inside), visible non-mask seeds the outside |
+| Q10.5 | Orbiting with marks | Views add up: union of per-view masks; marks re-used as prompts in the views that see them |
+| Q10.6 | Weight delivery | Fetched from Hugging Face on first use (pinned revision, size prompt, progress, SHA-256 check), kept in the Cache API; not tracked in git. The no-network rule was upstream's: relaxed for the model only |
+| Q10.7 | No WebGPU | Tool disabled with the reason; no WASM fallback |
+| Q10.8 | Mask scale | Highest-scored of SAM's 3 candidates; `Tab` cycles (single-click views only) |
+| Q10.9 | Existing paint | Keep other colors: only the first click's color can join the region |
+| Q10.10 | Spike bar | Beats guided fill on Yoshi (eye dome blend, pupil highlight, shell, shell rim; ≤3 clicks each) and ≤2 s per view on WebGPU; small models only, no SAM 2.1-tiny reference |
+| Q10.11 | Model | Small Apache-2.0 SAM-1-class model chosen by the spike (SlimSAM-77, MobileSAM, EfficientSAM-Ti) _default list_ |
