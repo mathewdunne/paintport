@@ -13,6 +13,9 @@ export const strings = {
     newProject: "New",
     newProjectHint: "Start a new project",
   },
+  settings: {
+    label: "Settings",
+  },
   theme: {
     label: "Theme",
     light: "Light",

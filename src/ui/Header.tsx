@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
-import { ThemeToggle } from "./ThemeToggle";
+import { SettingsMenu } from "./SettingsMenu";
 import { useHistoryState } from "./useProjectState";
 
 interface HeaderProps {
@@ -60,13 +60,13 @@ export function Header({ project, onImportFiles, canImport, canStartNew, onNew, 
           <Upload />
           {strings.header.import}
         </Button>
-        <ThemeToggle />
         <Button variant="ghost" size="sm" asChild>
           <a href="./classic/" title={strings.header.classicHint}>
             {strings.header.classic}
             <ExternalLink />
           </a>
         </Button>
+        <SettingsMenu />
       </div>
     </header>
   );
