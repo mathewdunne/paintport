@@ -1,7 +1,7 @@
 import type { ImageCamera, SamImage, Visibility } from "../sam/types";
 import type { State, Vec3 } from "../doc/paintField";
 
-export type ToolId = "brush" | "shellFill" | "smartFill" | "guidedFill" | "eraser" | "eyedropper";
+export type ToolId = "brush" | "shellFill" | "smartFill" | "guidedFill" | "aiPaint" | "eraser" | "eyedropper";
 
 /** Everything the paint tools need from the UI. */
 export interface PaintSettings {

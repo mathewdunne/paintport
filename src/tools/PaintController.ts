@@ -4,9 +4,13 @@ import { objectSpaceSphere } from "../doc/transform";
 import { interpolateDabs, type Point } from "./dabs";
 import { ClickDetector } from "./gesture";
 import type { Vec3 } from "../doc/paintField";
+import type { Segmenter } from "../sam/types";
+import { AiPaintSession, type AiState } from "./aiPaint";
 import type { PaintSettings, PaintView, PickHit, ToolId } from "./types";
 
 export interface PaintCallbacks {
+  /** AI Paint's pending region changed, or null when there are no marks. */
+  onAi?(state: AiState | null): void;
   /** The eyedropper picked a design color: make it the active one. */
   onPickState(state: number): void;
   /** A color chip for the eyedropper under the cursor (client coordinates), or null to hide it. */
@@ -107,6 +111,8 @@ export class PaintController {
   /** The guided fill's marks (all on one object) and the region they give; null when there are none. */
   private guided: { object: number; marks: GuidedMark[]; region: Uint32Array } | null = null;
   private guidedDirty = false;
+  private readonly ai: AiPaintSession;
+  private aiDirty = false;
   /** Smoothed cost of one dab, to size the per-frame dab budget. */
   private dabMs = 0.1;
   private disposed = false;
@@ -122,6 +128,14 @@ export class PaintController {
     private readonly env: ControllerEnv = browserEnv(),
   ) {
     this.settings = settings;
+    this.ai = new AiPaintSession({
+      project,
+      view,
+      fillSettings: (object, point) => ({ angle: this.settings.smartAngle, scale: this.objectScale(object, point) }),
+      paintState: () => this.paintState(),
+      onState: (state) => this.callbacks.onAi?.(state),
+      onError: (error) => console.error("AI Paint failed", error),
+    });
     this.warmFillData();
     const el = this.view.element;
     const listen = (target: EventTarget, type: string, handler: (e: never) => void, capture = false) => {
@@ -149,6 +163,7 @@ export class PaintController {
         if (e.kind === "history") return;
         this.epoch++;
         if (this.guided) this.guidedDirty = true;
+        if (this.ai.active) this.aiDirty = true;
         this.hoverDirty = true;
         this.schedule();
       }),
@@ -160,11 +175,15 @@ export class PaintController {
     this.settings = next;
     if (previous.tool !== next.tool) {
       this.clearGuided();
+      this.ai.clear();
       this.finishStroke();
       this.clearHover();
       this.warmFillData();
     }
-    else if (this.guided && (previous.smartAngle !== next.smartAngle || previous.smartScale !== next.smartScale)) this.guidedDirty = true;
+    else if (previous.smartAngle !== next.smartAngle || previous.smartScale !== next.smartScale) {
+      if (this.guided) this.guidedDirty = true;
+      if (this.ai.active) this.aiDirty = true;
+    }
     this.hoverDirty = true;
     this.schedule();
   }
@@ -180,6 +199,7 @@ export class PaintController {
     this.altClick.cancel();
     if (!enabled) {
       this.clearGuided();
+      this.ai.clear();
       this.finishStroke();
       this.gesture = "none";
       this.clearHover();
@@ -194,6 +214,7 @@ export class PaintController {
     if (this.disposed) return;
     this.disposed = true;
     this.clearGuided();
+    this.ai.dispose();
     this.finishStroke();
     this.clearHover();
     this.view.setCursor("");
@@ -227,6 +248,9 @@ export class PaintController {
           break;
         case "guidedFill":
           this.markAt(e.clientX, e.clientY, !e.shiftKey);
+          break;
+        case "aiPaint":
+          this.aiMarkAt(e.clientX, e.clientY, !e.shiftKey);
           break;
         case "eyedropper":
           this.pickColorAt(e.clientX, e.clientY);
@@ -304,6 +328,18 @@ export class PaintController {
       if (action) {
         e.preventDefault();
         action.call(this);
+      }
+    }
+    if (e.type === "keydown" && this.ai.active && this.enabled && this.settings.tool === "aiPaint" && !e.ctrlKey && !e.metaKey && !e.altKey && !onControl(e.target)) {
+      const ai = this.ai;
+      const action = e.key === "Enter" ? () => ai.commit()
+        : e.key === "Escape" ? () => ai.clear()
+        : e.key === "Backspace" || e.key === "Delete" ? () => ai.undoMark()
+        : e.key === "Tab" ? () => ai.cycle()
+        : null;
+      if (action) {
+        e.preventDefault();
+        action();
       }
     }
     if (this.pointer) {
@@ -516,6 +552,10 @@ export class PaintController {
           this.guidedDirty = false;
           this.updateGuided();
         }
+        if (!this.stroke && this.aiDirty) {
+          this.aiDirty = false;
+          this.ai.refresh();
+        }
         if (!this.stroke && this.hoverDirty && this.gesture === "none") {
           this.hoverDirty = false;
           this.updateHover();
@@ -540,6 +580,12 @@ export class PaintController {
     }
     const tool = p.alt ? "eyedropper" : this.settings.tool;
     this.view.setCursor(tool === "brush" || tool === "eraser" ? "none" : "crosshair");
+    if (tool === "aiPaint") { // SAM answers clicks only: no hover preview
+      this.clearRegion();
+      this.view.hideBrushCursor();
+      this.callbacks.onSwatch(null);
+      return;
+    }
     if (tool === "guidedFill" && this.guided) { // the marks' region stays highlighted; no single-click preview
       this.view.hideBrushCursor();
       this.callbacks.onSwatch(null);
@@ -606,11 +652,35 @@ export class PaintController {
    * triangles) and a fill needs it: do it when a fill tool is chosen, not at the first hover.
    */
   private warmFillData(): void {
-    if (this.settings.tool !== "shellFill" && this.settings.tool !== "smartFill" && this.settings.tool !== "guidedFill") return;
+    if (this.settings.tool !== "shellFill" && this.settings.tool !== "smartFill" && this.settings.tool !== "guidedFill" && this.settings.tool !== "aiPaint") return;
     this.env.clearTimer(this.warmTimer);
     this.warmTimer = this.env.setTimer(() => {
       if (!this.disposed) this.project.objects.forEach((_, i) => this.project.topology(i));
     }, 0);
+  }
+
+  // --- AI Paint ------------------------------------------------------------------------
+
+  /** The model AI Paint uses; null while it isn't loaded. */
+  setSegmenter(segmenter: Segmenter | null): void {
+    this.ai.setSegmenter(segmenter);
+  }
+
+  /** Paints AI Paint's region (the viewport bar's Paint button). */
+  commitAi(): void {
+    this.ai.commit();
+  }
+
+  /** Drops AI Paint's marks (the viewport bar's Clear button). */
+  clearAi(): void {
+    this.ai.clear();
+  }
+
+  private aiMarkAt(x: number, y: number, positive: boolean): void {
+    const hit = this.view.pick(x, y);
+    if (!hit) return;
+    this.clearRegion();
+    this.ai.mark(hit, positive);
   }
 
   private clearRegion(): void {

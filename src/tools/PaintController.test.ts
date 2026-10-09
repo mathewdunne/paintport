@@ -3,7 +3,9 @@ import { cubeMesh, joinMeshes, makeModel } from "../../test/support/docFixtures"
 import { applyTransform, parseTransform } from "../core";
 import { createProject, type Project } from "../doc/project";
 import { sqDistPointTriangle } from "../doc/triangleMath";
+import { captureFor, FakeSegmenter, settle } from "../../test/support/fakeSam";
 import { PaintController, type ControllerEnv, type GuidedState } from "./PaintController";
+import type { AiState } from "./aiPaint";
 import type { BrushTarget, PaintSettings, PaintView, PickHit, ViewMark, SamCapture } from "./types";
 
 /** Minimal element: events, pointer capture bookkeeping. */
@@ -100,8 +102,9 @@ function setup(settings: Partial<PaintSettings> = {}, mesh = cubeMesh(), transfo
   const picked: number[] = [];
   const swatches: ({ x: number; y: number; color: string } | null)[] = [];
   const guided: (GuidedState | null)[] = [];
+  const ai: (AiState | null)[] = [];
   const controller = new PaintController(
-    project, view, { onPickState: (s) => picked.push(s), onSwatch: (s) => swatches.push(s), onGuided: (g) => guided.push(g) }, { ...base, ...settings }, env,
+    project, view, { onPickState: (s) => picked.push(s), onSwatch: (s) => swatches.push(s), onGuided: (g) => guided.push(g), onAi: (a) => ai.push(a) }, { ...base, ...settings }, env,
   );
   const el = view.element as unknown as FakeElement;
   const fire = (target: EventTarget, type: string, init: Record<string, unknown> = {}) =>
@@ -111,7 +114,7 @@ function setup(settings: Partial<PaintSettings> = {}, mesh = cubeMesh(), transfo
   const hover = (x: number, init: Record<string, unknown> = {}) => fire(el, "pointermove", { clientX: x, buttons: 0, ...init });
   const up = (init: Record<string, unknown> = {}) => fire(el, "pointerup", init);
   const key = (k: string) => fire(env.win, "keydown", { key: k });
-  return { project, view, env, controller, el, picked, swatches, guided, down, move, hover, up, fire, key };
+  return { project, view, env, controller, el, picked, swatches, guided, ai, down, move, hover, up, fire, key };
 }
 
 const painted = (p: Project) => Array.from(p.fields[0].displayStates()).map((s, t) => (s ? t : -1)).filter((t) => t >= 0);
@@ -836,5 +839,72 @@ describe("guided fill", () => {
     hover(60); env.frame();
     expect(highlighted(view)).toHaveLength(12); // the marks' region, not a new preview
     expect(view.marks).toHaveLength(1);
+  });
+});
+
+describe("AI Paint", () => {
+  const FRONT = [4, 5]; // the cube's y = 0 face, which a camera at y = -5 sees
+
+  function aiSetup() {
+    const s = setup({ tool: "aiPaint" });
+    const { vertices, tris } = s.project.objects[0].mesh;
+    s.view.captureFn = () => captureFor({ vertices, tris }, [0.5, -5, 0.5]);
+    s.view.pickFn = (x) => ({ object: 0, tri: x < 50 ? 4 : 5, point: [x / 100, 0, 0.5], normal: [0, -1, 0], distance: 5 });
+    const segmenter = new FakeSegmenter([{ score: 0.9, logit: () => 4 }, { score: 0.5, logit: (x) => (x < 32 ? 4 : -4) }]);
+    s.controller.setSegmenter(segmenter);
+    return { ...s, segmenter };
+  }
+
+  it("asks the model on click and paints the region with Enter as one undo step", async () => {
+    const { project, view, down, up, key, segmenter, ai } = aiSetup();
+    down({ clientX: 30 }); up({ clientX: 30 });
+    await settle();
+    expect(segmenter.decodes).toHaveLength(1);
+    expect(Array.from(view.region!.tris).sort((a, b) => a - b)).toEqual(FRONT);
+    expect(ai.at(-1)).toMatchObject({ status: "ready", positive: 1, tris: 2 });
+    key("Enter");
+    expect(painted(project)).toEqual(FRONT);
+    expect(project.undoCount).toBe(1);
+    expect(ai.at(-1)).toBeNull();
+  });
+
+  it("takes Shift+click as a negative point; Escape and a tool change clear", async () => {
+    const { view, down, up, key, controller, segmenter, ai } = aiSetup();
+    down({ clientX: 30 }); up({ clientX: 30 });
+    down({ clientX: 70, shiftKey: true }); up({ clientX: 70, shiftKey: true });
+    await settle();
+    expect(segmenter.decodes.at(-1)!.map((p) => p.positive)).toEqual([true, false]);
+    key("Escape");
+    expect(view.region).toBeNull();
+    expect(view.marks).toEqual([]);
+    expect(ai.at(-1)).toBeNull();
+    down({ clientX: 30 }); up({ clientX: 30 });
+    await settle();
+    controller.setSettings({ ...base, tool: "brush" });
+    expect(view.region).toBeNull();
+  });
+
+  it("steps to the next candidate with Tab", async () => {
+    const { view, down, up, key } = aiSetup();
+    down({ clientX: 30 }); up({ clientX: 30 });
+    await settle();
+    key("Tab"); // the left half of the image is x < 0.5 on the y = 0 face: triangle 5 only
+    expect(Array.from(view.region!.tris)).toEqual([5]);
+  });
+
+  it("is cleared by the Print view", async () => {
+    const { view, down, up, controller, ai } = aiSetup();
+    down({ clientX: 30 }); up({ clientX: 30 });
+    await settle();
+    controller.setEnabled(false);
+    expect(view.region).toBeNull();
+    expect(ai.at(-1)).toBeNull();
+  });
+
+  it("says that the model is missing before it is loaded", () => {
+    const { down, up, controller, ai } = aiSetup();
+    controller.setSegmenter(null);
+    down({ clientX: 30 }); up({ clientX: 30 });
+    expect(ai.at(-1)).toMatchObject({ status: "noModel" });
   });
 });

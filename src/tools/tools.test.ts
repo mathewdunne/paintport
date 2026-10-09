@@ -95,6 +95,7 @@ describe("interpretKey", () => {
     expect(interpretKey(key("b"), false)).toEqual({ type: "tool", tool: "brush" });
     expect(interpretKey(key("F"), false)).toEqual({ type: "tool", tool: "shellFill" });
     expect(interpretKey(key("s"), false)).toEqual({ type: "tool", tool: "smartFill" });
+    expect(interpretKey(key("a"), false)).toEqual({ type: "tool", tool: "aiPaint" });
     expect(interpretKey(key("e"), false)).toEqual({ type: "tool", tool: "eraser" });
     expect(interpretKey(key("I", { shiftKey: true }), false)).toEqual({ type: "tool", tool: "eyedropper" });
     expect(interpretKey(key("x"), false)).toBeNull();
