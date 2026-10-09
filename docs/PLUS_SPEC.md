@@ -1,6 +1,6 @@
 # PaintPort+ — plan & spec
 
-Status: **phases 1–2 done; phase 3 in progress.** The decisions below came from five
+Status: **phases 1–3 done (phase 3 awaiting the user's hands-on test).** The decisions below came from five
 question waves with the user (IDs like Q2.1 refer to section 7). Items marked
 _default_ are my calls on things we didn't discuss; push back on any of them.
 

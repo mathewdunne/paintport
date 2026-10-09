@@ -28,7 +28,7 @@ npm run build      # typecheck + production build into dist/
 
 - `src/core/`: TypeScript port of the classic tool's DOM-free core (ZIP, 3MF load/build, TriangleSelector paint codec with `prusa`/`bbs` dialects, color math, ColorMix). `src/core/parity.test.ts` evaluates the original core from `public/classic/index.html` in `node:vm` and requires identical outputs on seeded random inputs. Any intended behavior change must be handled there explicitly and narrowly (see the volume-type fix), never by weakening the comparison.
 - `src/formats/`: STL/OBJ parsers and `importFile` dispatch, producing the core's `Model` shape.
-- `src/doc/`: the editable document. `Project` owns every edit (paint, palette, base colors), the undo stack (strokes, count and memory budget) and change events; `TrianglePaintField` stores whole-triangle design states and preserves imported split trees; welded edge topology drives shell/smart fill; autosave snapshots (geometry and paint halves). DOM-free.
+- `src/doc/`: the editable document. `Project` owns every edit (paint, palette, base colors), the undo stack (strokes, count and memory budget) and change events; `TrianglePaintField` stores whole-triangle design states and preserves imported split trees; welded edge topology drives shell/smart fill; autosave snapshots (geometry and paint halves); spool/mapping model and pins (`mapping.ts`, `pins.ts`); export and the design sidecar (`export.ts`, `sidecar.ts`, `importProject.ts`). DOM-free.
 - `src/tools/`: `PaintController` turns pointer input into document edits (brush strokes, fills, eyedropper) through a `PaintView` interface, so it is testable with a fake view.
 - `src/view/`: three.js viewer, React-free. Per-triangle flat colors in non-indexed geometry, range-based color updates, sRGB bytes converted to linear in a vertex-shader patch; three-mesh-bvh picking; a depth pass for visible-only brushing; `projectSync` applies document events incrementally.
 - `src/persist/`: IndexedDB `SnapshotStore` (database `paintportplus`, one record per autosave half), the debounced `Autosaver` and session restore. Browser-facing, but free of React.
@@ -42,6 +42,8 @@ npm run build      # typecheck + production build into dist/
 - `src/core/`, `src/formats/` and `src/doc/` stay free of DOM, React and three.js (`src/core/noDom.test.ts` guards the core).
 - English only: UI strings live in `src/strings.ts`, and code comments and test names are in English.
 - Imported object names reach the DOM only as React text, never via `dangerouslySetInnerHTML`. Colors go through `normalizeHex`.
-- If "Allow ColorMix" is off, export must refuse instead of writing blends (carried over from classic; lands in phase 3).
+- If "Allow ColorMix" is off, export must refuse instead of writing blends (carried over from classic; enforced in `src/doc/export.ts`, not only in the UI).
+- Export must stay byte-identical to the classic `build3MF` plan for untouched projects: `src/doc/exportParity.test.ts` checks it, and intended differences are listed there explicitly.
+- Every export embeds the design sidecar (`src/doc/sidecar.ts`, FORMAT.md section 10). Bump its version when the layout changes.
 - No runtime network requests: dependencies and fonts are bundled.
 - License: AGPL-3.0. Formats are reimplemented, so don't copy code from PrusaSlicer, Primed3D or the slicer sources.
