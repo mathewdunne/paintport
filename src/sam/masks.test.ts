@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cropToImage, maskCovers, maskLogit, rankCandidates } from "./masks";
+import { cropToImage, fieldAt, maskCovers, maskField, maskLogit, rankCandidates } from "./masks";
 
 describe("rankCandidates", () => {
   it("orders by score, best first, ties in the model's order", () => {
@@ -40,5 +40,32 @@ describe("maskLogit and maskCovers", () => {
     expect(maskCovers(mask, image, 2.5, 1)).toBe(true);
     expect(maskCovers(mask, image, 4, 1)).toBe(false);
     expect(maskCovers(mask, image, -0.1, 1)).toBe(false);
+  });
+});
+
+describe("maskField", () => {
+  // 8 cells of 1 px in a row: two parts, cells 1-2 and 5-7.
+  const mask = { width: 8, height: 1, logits: Float32Array.of(-1, 1, 1, -1, -1, 1, 1, 1), score: 1 };
+  const image = { width: 8, height: 1 };
+  const row = (field: { distance: Float32Array }) => Array.from(field.distance, (d) => Math.round(d * 10) / 10);
+
+  it("gives the signed distance to the edge, not counting the image border as an edge", () => {
+    expect(row(maskField(mask, image, []))).toEqual([-1, 1, 1, -1, -1, 1, 2, 3]);
+  });
+
+  it("keeps only the parts that hold a point", () => {
+    const field = maskField(mask, image, [{ x: 1.5, y: 0.5 }]);
+    expect(row(field)).toEqual([-1, 1, 1, -1, -2, -3, -4, -5]);
+    expect(field.depth).toBe(1);
+  });
+
+  it("keeps the whole mask when no part holds a point", () => {
+    expect(row(maskField(mask, image, [{ x: 3.5, y: 0.5 }]))).toEqual([-1, 1, 1, -1, -1, 1, 2, 3]);
+  });
+
+  it("reads the pixel under a position and is -Infinity outside the image", () => {
+    const field = maskField(mask, image, []);
+    expect(fieldAt(field, 6.9, 0.2)).toBe(2);
+    expect(fieldAt(field, 8, 0)).toBe(-Infinity);
   });
 });

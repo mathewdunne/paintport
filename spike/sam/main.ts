@@ -10,7 +10,7 @@ import { importProject } from "@/doc/importProject";
 import { resolveTriangleState } from "@/doc/display";
 import { fitLongSide, flipRows, toPixelValues } from "@/sam/image";
 import { liftMask, projectToImage, triangleFrames } from "@/sam/lift";
-import { cropToImage, maskCovers, rankCandidates } from "@/sam/masks";
+import { cropToImage, maskCovers, maskField, rankCandidates } from "@/sam/masks";
 import type { ImageCamera, SamImage, SamMask, SamPoint } from "@/sam/types";
 import { MODEL_LAYER } from "@/view/depthPass";
 import { ModelViewer } from "@/view/ModelViewer";
@@ -184,7 +184,8 @@ function apply(): void {
 
 function liftMaskTimed(mask: SamMask) {
   const t0 = performance.now();
-  const split = liftMask(frames, object.paintable, view!.camera, view!.visibility, (x, y) => maskCovers(mask, view!.camera, x, y));
+  const field = maskField(mask, view!.camera, clicks.filter((c) => c.point.positive).map((c) => c.point));
+  const split = liftMask(frames, object.paintable, view!.camera, view!.visibility, field);
   log(`liftMask ${(performance.now() - t0).toFixed(0)} ms`);
   return split;
 }

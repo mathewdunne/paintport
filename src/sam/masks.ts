@@ -35,3 +35,95 @@ export function maskCovers(mask: SamMask, image: { width: number; height: number
   if (!(x >= 0 && y >= 0 && x < image.width && y < image.height)) return false;
   return maskLogit(mask, image, x, y) > 0;
 }
+
+/** A mask at image resolution as the signed distance to its edge in pixels: > 0 inside, < 0 outside. */
+export interface MaskField {
+  width: number;
+  height: number;
+  /** Row-major, row 0 at the top. The image border is not an edge. */
+  distance: Float32Array;
+  /** The largest inside distance: how far the middle of the mask is from its edge. */
+  depth: number;
+}
+
+/**
+ * Rasterizes a mask at image resolution, keeping only the parts that hold one of the `keep`
+ * points (image pixels). SAM's masks often come with small islands away from the click, which
+ * would otherwise be painted as stray patches. If no part holds a point, the whole mask is kept.
+ */
+export function maskField(mask: SamMask, image: { width: number; height: number }, keep: readonly { x: number; y: number }[]): MaskField {
+  const { width, height } = image, n = width * height;
+  const inside = new Uint8Array(n);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) inside[y * width + x] = maskLogit(mask, image, x + 0.5, y + 0.5) > 0 ? 1 : 0;
+
+  // Label the 4-connected parts and drop those that hold no point.
+  const part = new Int32Array(n), stack: number[] = [];
+  let parts = 0;
+  for (let i = 0; i < n; i++) {
+    if (!inside[i] || part[i]) continue;
+    part[i] = ++parts;
+    stack.push(i);
+    while (stack.length > 0) {
+      const p = stack.pop()!, x = p % width;
+      if (x > 0 && inside[p - 1] && !part[p - 1]) { part[p - 1] = parts; stack.push(p - 1); }
+      if (x < width - 1 && inside[p + 1] && !part[p + 1]) { part[p + 1] = parts; stack.push(p + 1); }
+      if (p >= width && inside[p - width] && !part[p - width]) { part[p - width] = parts; stack.push(p - width); }
+      if (p < n - width && inside[p + width] && !part[p + width]) { part[p + width] = parts; stack.push(p + width); }
+    }
+  }
+  const kept = new Set<number>();
+  for (const { x, y } of keep) {
+    const px = Math.floor(x), py = Math.floor(y);
+    if (px >= 0 && py >= 0 && px < width && py < height && part[py * width + px]) kept.add(part[py * width + px]);
+  }
+  if (kept.size > 0) for (let i = 0; i < n; i++) if (inside[i] && !kept.has(part[i])) inside[i] = 0;
+
+  const toOutside = distanceTo(inside, 0, width, height), toInside = distanceTo(inside, 1, width, height);
+  const distance = new Float32Array(n);
+  let depth = 0;
+  for (let i = 0; i < n; i++) {
+    distance[i] = inside[i] ? toOutside[i] : -toInside[i];
+    if (inside[i]) depth = Math.max(depth, toOutside[i]);
+  }
+  return { width, height, distance, depth };
+}
+
+/** The field at image position (x, y); -Infinity outside the image. */
+export function fieldAt(field: MaskField, x: number, y: number): number {
+  if (!(x >= 0 && y >= 0 && x < field.width && y < field.height)) return -Infinity;
+  return field.distance[Math.floor(y) * field.width + Math.floor(x)];
+}
+
+/** Per pixel, the chamfer distance (steps of 1 and √2) to the nearest pixel whose value is `target`; Infinity if there is none. */
+function distanceTo(values: Uint8Array, target: number, width: number, height: number): Float32Array {
+  const d = new Float32Array(width * height);
+  for (let i = 0; i < d.length; i++) d[i] = values[i] === target ? 0 : Infinity;
+  const r = Math.SQRT2;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      let v = d[i];
+      if (x > 0) v = Math.min(v, d[i - 1] + 1);
+      if (y > 0) {
+        v = Math.min(v, d[i - width] + 1);
+        if (x > 0) v = Math.min(v, d[i - width - 1] + r);
+        if (x < width - 1) v = Math.min(v, d[i - width + 1] + r);
+      }
+      d[i] = v;
+    }
+  }
+  for (let y = height - 1; y >= 0; y--) {
+    for (let x = width - 1; x >= 0; x--) {
+      const i = y * width + x;
+      let v = d[i];
+      if (x < width - 1) v = Math.min(v, d[i + 1] + 1);
+      if (y < height - 1) {
+        v = Math.min(v, d[i + width] + 1);
+        if (x < width - 1) v = Math.min(v, d[i + width + 1] + r);
+        if (x > 0) v = Math.min(v, d[i + width - 1] + r);
+      }
+      d[i] = v;
+    }
+  }
+  return d;
+}

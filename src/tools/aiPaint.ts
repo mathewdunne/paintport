@@ -9,9 +9,9 @@ import { resolveDisplayStates, resolveTriangleState } from "../doc/display";
 import type { Vec3 } from "../doc/paintField";
 import type { Project } from "../doc/project";
 import { liftMask, triangleFrames, type MaskSplit, type TriangleFrames } from "../sam/lift";
-import { maskCovers, rankCandidates } from "../sam/masks";
+import { maskField, rankCandidates } from "../sam/masks";
 import { combineViews, promptsFor, type AiMark } from "../sam/selection";
-import type { SamEmbedding, SamMask, Segmenter } from "../sam/types";
+import type { SamEmbedding, SamMask, SamPoint, Segmenter } from "../sam/types";
 import type { PaintView, PickHit, SamCapture } from "./types";
 
 /** What the viewport bar shows. */
@@ -46,8 +46,8 @@ interface ViewEntry {
   seq: number;
   /** Ranked best first. */
   masks: SamMask[] | null;
-  /** How many prompt points the masks were decoded from. */
-  prompts: number;
+  /** The prompt points the masks were decoded from. */
+  points: SamPoint[];
   candidate: number;
   split: MaskSplit | null;
 }
@@ -102,7 +102,7 @@ export class AiPaintSession {
         return;
       }
       embedding.catch(() => {}); // reported by the decode that waits for it
-      entry = { id: this.nextView++, capture, embedding, seq: 0, masks: null, prompts: 0, candidate: 0, split: null };
+      entry = { id: this.nextView++, capture, embedding, seq: 0, masks: null, points: [], candidate: 0, split: null };
       this.views.push(entry);
     }
     const id = entry.id;
@@ -133,7 +133,7 @@ export class AiPaintSession {
   /** Steps to SAM's next candidate mask when the last view has a single click (Tab). */
   cycle(): void {
     const entry = this.lastView();
-    if (!entry?.masks || entry.prompts !== 1 || entry.masks.length < 2 || this.pending > 0) return;
+    if (!entry?.masks || entry.points.length !== 1 || entry.masks.length < 2 || this.pending > 0) return;
     entry.candidate = (entry.candidate + 1) % entry.masks.length;
     this.liftView(entry);
     this.updateRegion();
@@ -181,7 +181,7 @@ export class AiPaintSession {
     if (!points.some((p) => p.positive)) {
       entry.masks = null;
       entry.split = null;
-      entry.prompts = 0;
+      entry.points = [];
       this.updateRegion();
       return;
     }
@@ -194,7 +194,7 @@ export class AiPaintSession {
       const masks = await segmenter.decode(embedding, points);
       if (!current()) return;
       entry.masks = rankCandidates(masks);
-      entry.prompts = points.length;
+      entry.points = points;
       entry.candidate = 0;
       this.liftView(entry);
       this.failed = false;
@@ -224,7 +224,8 @@ export class AiPaintSession {
       this.frames.set(this.object, frames);
     }
     const { camera, visibility } = entry.capture;
-    entry.split = liftMask(frames, object.paintable, camera, visibility, (x, y) => maskCovers(mask, camera, x, y));
+    const field = maskField(mask, camera, entry.points.filter((p) => p.positive));
+    entry.split = liftMask(frames, object.paintable, camera, visibility, field);
   }
 
   private updateRegion(): void {
@@ -256,7 +257,7 @@ export class AiPaintSession {
       positive,
       negative: this.marks.length - positive,
       tris: this.region.length,
-      canCycle: !!last?.masks && last.prompts === 1 && last.masks.length > 1,
+      canCycle: !!last?.masks && last.points.length === 1 && last.masks.length > 1,
     });
   }
 

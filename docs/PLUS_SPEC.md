@@ -150,8 +150,13 @@ The third is phase 5's job and AI Paint doesn't fix it.
 - **Mask → triangles**: a triangle belongs to a view's mask when its centroid is visible in
   that view (the depth test the visible-only brush uses, `src/view/visibility.ts`, so
   sub-pixel triangles on dense meshes aren't lost the way they would be with an ID buffer)
-  and the mask covers the centroid's pixel. Whole triangles only, so the boundaries are as
-  jagged as today's fills until phase 5.
+  and the mask covers the centroid's pixel. Only the parts of the mask that hold one of the
+  view's positive marks count (SAM's masks come with stray islands). Triangles within 3 of
+  SAM's 256 mask cells of the mask's edge, or seen at a grazing angle (cosine below 0.3),
+  seed neither flood: there the mask is unsure, and trusting it walled the race off from the
+  hidden side (Charizard's belly stopped at its lower silhouette). The race then puts the
+  boundary on the crease. Whole triangles only, so the boundaries are as jagged as today's
+  fills until phase 5.
 - **Existing paint (Q10.9)**: only triangles that currently show the same color as the
   first click's triangle can join the region. Other colors are left alone, as with the fills.
 - **Hidden surface (Q10.4)**: geometry carries the region on. The mask's triangles seed
