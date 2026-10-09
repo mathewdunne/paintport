@@ -112,6 +112,8 @@ export class PaintController {
   private guided: { object: number; marks: GuidedMark[]; region: Uint32Array } | null = null;
   private guidedDirty = false;
   private readonly ai: AiPaintSession;
+  /** AI Paint is analyzing a view: the cursor over the model shows it is busy. */
+  private aiBusy = false;
   private aiDirty = false;
   /** Smoothed cost of one dab, to size the per-frame dab budget. */
   private dabMs = 0.1;
@@ -133,7 +135,15 @@ export class PaintController {
       view,
       fillSettings: (object, point) => ({ angle: this.settings.smartAngle, scale: this.objectScale(object, point) }),
       paintState: () => this.paintState(),
-      onState: (state) => this.callbacks.onAi?.(state),
+      onState: (state) => {
+        const busy = state?.status === "analyzing";
+        if (busy !== this.aiBusy) {
+          this.aiBusy = busy;
+          this.hoverDirty = true;
+          this.schedule();
+        }
+        this.callbacks.onAi?.(state);
+      },
       onError: (error) => console.error("AI Paint failed", error),
     });
     this.warmFillData();
@@ -579,7 +589,7 @@ export class PaintController {
       return;
     }
     const tool = p.alt ? "eyedropper" : this.settings.tool;
-    this.view.setCursor(tool === "brush" || tool === "eraser" ? "none" : "crosshair");
+    this.view.setCursor(tool === "brush" || tool === "eraser" ? "none" : tool === "aiPaint" && this.aiBusy ? "progress" : "crosshair");
     if (tool === "aiPaint") { // SAM answers clicks only: no hover preview
       this.clearRegion();
       this.view.hideBrushCursor();

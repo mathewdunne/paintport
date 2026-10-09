@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Project } from "@/doc/project";
@@ -185,7 +186,8 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
             ) : ai ? (
               <>
                 <div className="flex items-center gap-3">
-                  <span className="tabular-nums">
+                  <span className="flex items-center gap-1.5 tabular-nums">
+                    {ai.status === "analyzing" && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
                     {ai.status === "analyzing" ? strings.viewport.aiAnalyzing : ai.status === "failed" ? strings.viewport.aiFailed : strings.viewport.aiRegion(ai.tris, ai.positive, ai.negative)}
                   </span>
                   <Button size="xs" onClick={() => controller.current?.commitAi()} disabled={ai.tris === 0 || ai.status === "analyzing"}>

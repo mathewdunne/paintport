@@ -80,8 +80,8 @@ all unpainted surface of that object. Exports keep the slicer's base-extruder se
   sphere intersects. By default it hits only surface **visible from the camera** (front
   facing and not occluded), so it doesn't bleed onto the back of thin parts. A
   **"Paint through"** toggle hits everything in the sphere.
-- **Shell fill**: bucket-fills the whole connected shell under the cursor (e.g. a
-  separate eye or button piece).
+- **Object paint** (called shell fill until 2026-10-09; `shellFill` in code): paints the
+  whole connected shell under the cursor (e.g. a separate eye or button piece).
 - **Smart fill**: flood fill from the clicked triangle that stops at edges sharper than
   an angle threshold and at existing paint boundaries. The panel shows one **Edge
   sensitivity** slider (Q9.3; "Bigger regions" to "Finer details", 60° to 5°, the default
@@ -134,8 +134,9 @@ The third is phase 5's job and AI Paint doesn't fix it.
 - **Tool (Q10.2)**: a new rail tool **"AI Paint"** (key `A`) with guided fill's flow. Click
   marks build a pending region that is highlighted with badges and the viewport bar, `Enter`
   paints it with the active color as one undo step, `Esc` clears it, `Backspace` removes the
-  last mark. A mark on another object starts over. It is disabled in the Print view like
-  every tool. Guided fill stays as it is.
+  last mark. A mark on another object starts over. While a view is analyzed, the cursor
+  over the model is the busy cursor and the viewport bar shows a spinner. It is disabled in
+  the Print view like every tool. Guided fill stays as it is.
 - **Prompts (Q10.3)**: click = positive point, Shift+click = negative point (SAM's own
   prompt types). No boxes or scribbles.
 - **Mask scale (Q10.8)**: for a single click SAM returns three candidates (e.g. pupil / eye
@@ -211,7 +212,10 @@ The third is phase 5's job and AI Paint doesn't fix it.
 |  |   [Design | Print]     |                   |
 +--+------------------------+-------------------+
 ```
-- Left: thin tool rail (Brush, Shell fill, Smart fill, Eraser, Eyedropper).
+- Left: tool rail with an icon and a name per tool (Brush, Object paint, Smart fill,
+  Guided fill, AI Paint, Eraser, Eyedropper). Smart fill, guided fill and AI Paint sit in
+  one boxed group labeled "Fill tools", since each picks a region its own way and stands in for the others when
+  one fails. Tooltips give a few-word description and the shortcut key.
 - Right: one panel with tabs. **Paint** = palette and active tool settings.
   **Objects** = object list with visibility/isolate and base color. **Export** = target
   slicer, spools, mapping, ColorMix toggle, export button.
@@ -229,11 +233,11 @@ Desktop mouse/trackpad only; touch can view but painting isn't tuned for it.
 | Wheel | Zoom |
 | Alt+left drag | Orbit (trackpad) |
 | `Shift` held while brushing | Erase _default_ |
-| `B` `F` `S` `G` `E` `I` | Brush, Shell fill, Smart fill, Guided fill, Eraser, Eyedropper _default_ |
+| `B` `F` `S` `G` `E` `I` | Brush, Object paint, Smart fill, Guided fill, Eraser, Eyedropper _default_ |
 | `[` `]` | Brush radius |
 | Guided fill: click / Shift+click | Inside / outside mark |
 | Guided fill: `Enter` / `Esc` / `Backspace` | Paint the region / clear the marks / remove the last mark |
-| AI Paint (planned): `A`; click / Shift+click; `Tab` | Tool; include / exclude point; next mask candidate. `Enter` / `Esc` / `Backspace` as guided fill |
+| AI Paint: `A`; click / Shift+click; `Tab` | Tool; include / exclude point; next mask candidate. `Enter` / `Esc` / `Backspace` as guided fill |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 
 Note: Alt+click is also the eyedropper. To resolve the conflict, Alt+**click** without

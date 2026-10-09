@@ -892,6 +892,20 @@ describe("AI Paint", () => {
     expect(Array.from(view.region!.tris)).toEqual([5]);
   });
 
+  it("shows a busy cursor over the model while the view is analyzed", async () => {
+    const { view, env, down, up, hover, segmenter } = aiSetup();
+    segmenter.hold = true;
+    down({ clientX: 30 }); up({ clientX: 30 });
+    await settle();
+    hover(40);
+    env.frame();
+    expect(view.cssCursor).toBe("progress");
+    segmenter.release();
+    await settle();
+    env.frame();
+    expect(view.cssCursor).toBe("crosshair");
+  });
+
   it("is cleared by the Print view", async () => {
     const { view, down, up, controller, ai } = aiSetup();
     down({ clientX: 30 }); up({ clientX: 30 });

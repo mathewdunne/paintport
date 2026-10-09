@@ -25,12 +25,23 @@ export const strings = {
   tools: {
     label: "Tools",
     brush: "Brush",
-    shellFill: "Shell fill",
+    shellFill: "Object paint",
     smartFill: "Smart fill",
     guidedFill: "Guided fill",
     aiPaint: "AI Paint",
     eraser: "Eraser",
     eyedropper: "Eyedropper",
+    /** The group of tools that each pick a region a different way. */
+    regionGroup: "Fill tools",
+    hints: {
+      brush: "Drag over the model to paint with the active color. Hold Shift to erase.",
+      shellFill: "Click to paint a whole object at once, useful for models that are already split into parts.",
+      smartFill: "Click an area to fill it. Adjust edge sensitivity to control how far the fill spreads.",
+      guidedFill: "Click on the area to paint, Shift+click where the color must not go, and repeat until the desired area is covered. Then press Enter.",
+      aiPaint: "Click a feature, and an AI model works out its outline from how it looks, even where there's no sharp edge. Shift+click to leave areas out, then press Enter.",
+      eraser: "Drag over the model to remove paint and show the base color again.",
+      eyedropper: "Click the model to make the color there your active color. Alt+click does the same from any tool.",
+    },
   },
   viewport: {
     emptyTitle: "Drop a 3MF, STL or OBJ",
