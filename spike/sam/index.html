@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI Paint spike</title>
+    <style>
+      body { margin: 0; font: 13px system-ui, sans-serif; display: grid; grid-template-columns: 1fr 560px; height: 100vh; }
+      #view { position: relative; height: 100vh; overflow: hidden; }
+      #side { overflow: auto; padding: 8px; border-left: 1px solid #ccc; }
+      #side > * { margin: 4px 0; }
+      #sam { width: 540px; border: 1px solid #ccc; image-rendering: pixelated; }
+      #log { white-space: pre-wrap; font: 12px ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <div id="view"></div>
+    <div id="side">
+      <div>
+        Model <select id="model">
+          <option>slimsam-77</option><option>slimsam-77-fp16</option><option>slimsam-77-q</option>
+          <option>slimsam-50</option><option>slimsam-50-fp16</option><option>slimsam-50-q</option>
+        </select>
+        Look <select id="look"><option>design</option><option>normals</option><option>clay</option><option>bend</option></select>
+        Background <select id="bg"><option value="ffffff">white</option><option value="808080">gray</option><option value="000000">black</option></select>
+      </div>
+      <div>
+        <button id="encode">Capture + encode view</button>
+        <button id="cand">Next candidate</button>
+        <button id="guided">Guided fill with these clicks</button>
+        <button id="reset">Reset clicks</button>
+        <button id="save">Save SAM image + mask</button>
+      </div>
+      <div>Left click: positive point, Shift+click: negative. Right drag orbits. Clicks need an encoded view.</div>
+      <canvas id="sam"></canvas>
+      <div id="log"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
