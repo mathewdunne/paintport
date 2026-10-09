@@ -13,6 +13,8 @@ export interface PaintPrefs {
   smartAngle: number;
   /** null = automatic per mesh. */
   smartScale: number | null;
+  /** Optional so older saved settings keep their unadjusted automatic feature size. */
+  smartScaleSensitivity?: number;
   fillAdvancedOpen: boolean;
 }
 
@@ -35,6 +37,9 @@ export function loadPaintPrefs(storage: KeyValueStorage | null = browserStorage(
   if (typeof r.radius === "number") prefs.radius = clampRadius(r.radius);
   if (typeof r.smartAngle === "number") prefs.smartAngle = clampSmartAngle(r.smartAngle);
   if (typeof r.smartScale === "number" || r.smartScale === null) prefs.smartScale = clampSmartScale(r.smartScale);
+  if (typeof r.smartScaleSensitivity === "number" && Number.isFinite(r.smartScaleSensitivity)) {
+    prefs.smartScaleSensitivity = Math.min(1, Math.max(0, r.smartScaleSensitivity));
+  }
   if (typeof r.fillAdvancedOpen === "boolean") prefs.fillAdvancedOpen = r.fillAdvancedOpen;
   return prefs;
 }

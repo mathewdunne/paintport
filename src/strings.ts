@@ -102,7 +102,7 @@ export const strings = {
     edgeSensitivity: "Edge sensitivity",
     sensitivityLoose: "Bigger regions",
     sensitivityStrict: "Finer details",
-    edgeSensitivityHint: "Raise it if a fill leaks into its neighbors, lower it if it stops too early.",
+    edgeSensitivityHint: "Raise it if a fill leaks into its neighbors, lower it if it stops too early. Near the ends, it also adjusts feature size.",
     advanced: "Advanced",
     smartFillAngle: "Edge angle",
     smartFillHint: "Smart fill stops at edges sharper than this.",

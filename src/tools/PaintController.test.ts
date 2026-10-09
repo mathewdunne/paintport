@@ -565,6 +565,40 @@ describe("fills", () => {
     expect(scales).toEqual([0.123]); // already in the object's units: no transform conversion
   });
 
+  it("sensitivity adjusts automatic feature size in world units and refreshes the hover preview", () => {
+    const { project, view, env, hover, controller, down, up } = setup(
+      { tool: "smartFill", smartScale: null, smartScaleSensitivity: 0 },
+      cubeMesh(), "2 0 0 0 2 0 0 0 2 0 0 0",
+    );
+    project.autoFeatureScale = () => 0.123;
+    const scales: number[] = [];
+    const region = project.smartFillRegion.bind(project);
+    project.smartFillRegion = (object, seed, angle, scale = 0) => {
+      scales.push(scale);
+      return region(object, seed, angle, scale);
+    };
+    hover(50); env.frame();
+    for (const sensitivity of [0.125, 0.5, 0.875, 1]) {
+      controller.setSettings({ ...base, tool: "smartFill", smartScale: null, smartScaleSensitivity: sensitivity });
+      env.frame();
+    }
+    expect(view.regionCalls).toHaveLength(5);
+    down(); up();
+    expect(scales.map((s) => +s.toFixed(6))).toEqual([0.5, 0.3115, 0.123, 0.0615, 0, 0]);
+  });
+
+  it("a manual feature size overrides the sensitivity adjustment", () => {
+    const { project, down, up } = setup({ tool: "smartFill", smartScale: 0.4, smartScaleSensitivity: 1 });
+    const scales: number[] = [];
+    const region = project.smartFillRegion.bind(project);
+    project.smartFillRegion = (object, seed, angle, scale = 0) => {
+      scales.push(scale);
+      return region(object, seed, angle, scale);
+    };
+    down(); up();
+    expect(scales).toEqual([0.4]);
+  });
+
   it("shows no preview where a fill would change nothing, so a fill shows its color at once", () => {
     for (const tool of ["smartFill", "shellFill"] as const) {
       const { project, view, env, hover, down, up, controller } = setup({ tool });

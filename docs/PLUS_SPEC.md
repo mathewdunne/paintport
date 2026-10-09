@@ -85,7 +85,11 @@ all unpainted surface of that object. Exports keep the slicer's base-extruder se
 - **Smart fill**: flood fill from the clicked triangle that stops at edges sharper than
   an angle threshold and at existing paint boundaries. The panel shows one **Edge
   sensitivity** slider (Q9.3; "Bigger regions" to "Finer details", 60° to 5°, the default
-  20° in the middle, Q9.2). An **Advanced** section holds the raw **edge angle** and the
+  20° in the middle, Q9.2). Its outer quarters also adjust the automatic feature size:
+  the Bigger regions end blends up to at least 1 mm, and the Finer details end down to
+  Off. The middle half keeps the mesh's automatic size. Moving sensitivity restores
+  automatic sizing; Advanced can override the angle and feature size independently.
+  An **Advanced** section holds the raw **edge angle** and the
   **feature size** (Q9.1): the bend is measured on the surface smoothed over that size
   instead of edge by edge, so sculpt/scan texture neither stops the fill nor leaves specks,
   and a soft crease several triangles wide reads as one band (`src/doc/featureField.ts`).

@@ -45,4 +45,20 @@ describe("paint preferences", () => {
     expect(loadPaintPrefs(m)).toEqual(defaultPaintPrefs());
     expect(savePaintPrefs(defaultPaintPrefs(), m)).toBe(false);
   });
+
+  it("remembers automatic feature size sensitivity without changing older preferences", () => {
+    const m = memory();
+    const prefs = { ...defaultPaintPrefs(), smartScaleSensitivity: 0.125 };
+    savePaintPrefs(prefs, m);
+    expect(loadPaintPrefs(m)).toEqual(prefs);
+    savePaintPrefs(defaultPaintPrefs(), m);
+    expect(loadPaintPrefs(m)).toEqual(defaultPaintPrefs());
+  });
+
+  it("clamps saved sensitivity and ignores malformed values", () => {
+    for (const [value, expected] of [[-1, 0], [2, 1], ["loose", undefined], [null, undefined]] as const) {
+      const m = memory({ [PAINT_SETTINGS_KEY]: JSON.stringify({ smartScaleSensitivity: value }) });
+      expect(loadPaintPrefs(m).smartScaleSensitivity).toBe(expected);
+    }
+  });
 });

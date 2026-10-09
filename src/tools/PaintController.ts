@@ -3,6 +3,7 @@ import type { Project } from "../doc/project";
 import { objectSpaceSphere } from "../doc/transform";
 import { interpolateDabs, type Point } from "./dabs";
 import { ClickDetector } from "./gesture";
+import { sensitivityToScale } from "./sensitivity";
 import type { Vec3 } from "../doc/paintField";
 import type { Segmenter } from "../sam/types";
 import { AiPaintSession, type AiState } from "./aiPaint";
@@ -191,7 +192,7 @@ export class PaintController {
       this.clearHover();
       this.warmFillData();
     }
-    else if (previous.smartAngle !== next.smartAngle || previous.smartScale !== next.smartScale) {
+    else if (previous.smartAngle !== next.smartAngle || previous.smartScale !== next.smartScale || previous.smartScaleSensitivity !== next.smartScaleSensitivity) {
       if (this.guided) this.guidedDirty = true;
       if (this.ai.active) this.aiDirty = true;
     }
@@ -480,7 +481,13 @@ export class PaintController {
   /** The smart fill feature size in the object's own units (0 = off): the mesh's own when automatic. */
   private objectScale(object: number, point: Vec3): number {
     const scale = this.settings.smartScale;
-    if (scale === null) return this.project.autoFeatureScale(object);
+    if (scale === null) {
+      const autoScale = this.project.autoFeatureScale(object);
+      const sensitivity = this.settings.smartScaleSensitivity;
+      if (sensitivity === undefined) return autoScale;
+      const objectPerWorld = objectSpaceSphere(this.project.objects[object].transform, point, 1).radius;
+      return sensitivityToScale(sensitivity, autoScale / objectPerWorld) * objectPerWorld;
+    }
     return scale > 0 ? objectSpaceSphere(this.project.objects[object].transform, point, scale).radius : 0;
   }
 
@@ -627,7 +634,7 @@ export class PaintController {
    * last computation was slow (a huge region), recomputation waits until the pointer rests.
    */
   private previewFill(hit: PickHit): void {
-    const key = `${this.settings.tool}|${hit.object}|${this.settings.activeState}|${this.settings.tool !== "shellFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}` : ""}|${this.epoch}`;
+    const key = `${this.settings.tool}|${hit.object}|${this.settings.activeState}|${this.settings.tool !== "shellFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}|${this.settings.smartScaleSensitivity ?? "default"}` : ""}|${this.epoch}`;
     const undirected = this.settings.tool === "shellFill" ||
       (this.objectScale(hit.object, hit.point) === 0 && !this.project.topology(hit.object).nonManifoldLinks?.size);
     if (key === this.fillKey && (undirected || hit.tri === this.fillSeed) && this.view.isRegionHighlighted(hit.object, hit.tri)) return;

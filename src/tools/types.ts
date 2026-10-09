@@ -19,6 +19,8 @@ export interface PaintSettings {
    * ignored; 0 compares neighboring faces; null picks a size per mesh (`Project.autoFeatureScale`).
    */
   smartScale: number | null;
+  /** Slider position adjusting the automatic feature size at the extremes; absent = unadjusted Auto. */
+  smartScaleSensitivity?: number;
 }
 
 /** A surface point under the cursor. `object` and `tri` are document indices. */

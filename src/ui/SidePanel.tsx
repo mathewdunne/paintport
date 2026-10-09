@@ -12,7 +12,7 @@ import type { Project } from "@/doc/project";
 import type { ExportSettings } from "@/persist/exportSettings";
 import { strings } from "@/strings";
 import { formatRadius, radiusToSlider, sliderToRadius } from "@/tools/radius";
-import { angleToSensitivity, MAX_SMART_ANGLE, MAX_SMART_SCALE, sensitivityToAngle } from "@/tools/sensitivity";
+import { angleToSensitivity, MAX_SMART_ANGLE, MAX_SMART_SCALE, sensitivityToAngle, sensitivityToScale } from "@/tools/sensitivity";
 import type { PaintSettings } from "@/tools/types";
 import { ExportTab } from "./export/ExportTab";
 import type { MappingModel } from "./export/mappingView";
@@ -73,7 +73,8 @@ export function SidePanel({
   exportSettings, onExportSettings, mapping, onExport, exporting, aiModel, onDownloadAi,
 }: SidePanelProps) {
   // The automatic feature size is shown only while the Advanced section is open (it needs the mesh topology).
-  const autoScale = useAutoFeatureScale(project, tab === "paint" && fillAdvancedOpen);
+  const meshScale = useAutoFeatureScale(project, tab === "paint" && fillAdvancedOpen);
+  const autoScale = meshScale === undefined ? undefined : sensitivityToScale(settings.smartScaleSensitivity ?? 0.5, meshScale);
   const scaleText = settings.smartScale === null ? strings.panel.scaleAuto(autoScale) : strings.panel.scaleValue(settings.smartScale);
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l">
@@ -127,12 +128,16 @@ export function SidePanel({
                 <span className="block text-xs font-medium">{strings.panel.edgeSensitivity}</span>
                 <Slider
                   aria-label={strings.panel.edgeSensitivity}
-                  aria-valuetext={strings.panel.angleValue(settings.smartAngle)}
+                  aria-valuetext={`${strings.panel.angleValue(settings.smartAngle)}, ${strings.panel.smartFillScale}: ${scaleText}`}
                   min={0}
                   max={SENSITIVITY_STEPS}
                   step={1}
                   value={[Math.round(angleToSensitivity(settings.smartAngle) * SENSITIVITY_STEPS)]}
-                  onValueChange={([v]) => onSettings({ smartAngle: sensitivityToAngle(v / SENSITIVITY_STEPS) })}
+                  onValueChange={([v]) => onSettings({
+                    smartAngle: sensitivityToAngle(v / SENSITIVITY_STEPS),
+                    smartScale: null,
+                    smartScaleSensitivity: v / SENSITIVITY_STEPS,
+                  })}
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>{strings.panel.sensitivityLoose}</span>
@@ -166,7 +171,7 @@ export function SidePanel({
                       max={MAX_SMART_SCALE}
                       step={0.05}
                       value={[Math.min(MAX_SMART_SCALE, settings.smartScale ?? autoScale ?? 0)]}
-                      onValueChange={([v]) => onSettings({ smartScale: v })}
+                      onValueChange={([v]) => onSettings({ smartScale: v, smartScaleSensitivity: undefined })}
                     />
                   </SliderRow>
                   <p className="text-xs text-muted-foreground">{strings.panel.smartFillScaleHint}</p>

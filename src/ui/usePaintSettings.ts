@@ -24,16 +24,17 @@ export function usePaintSettings(project: Project | null) {
     paintThrough: false,
     smartAngle: initial.smartAngle,
     smartScale: initial.smartScale,
+    smartScaleSensitivity: initial.smartScaleSensitivity,
   });
   const [fillAdvancedOpen, setFillAdvancedOpen] = useState(initial.fillAdvancedOpen);
   const patch = useCallback((p: Partial<PaintSettings>) => setSettings((s) => ({ ...s, ...p })), []);
   const step = useCallback((direction: -1 | 1) => setSettings((s) => ({ ...s, radius: stepRadius(s.radius, direction) })), []);
-  const resetSmartFill = useCallback(() => setSettings((s) => ({ ...s, smartAngle: DEFAULT_SMART_ANGLE, smartScale: DEFAULT_SMART_SCALE })), []);
+  const resetSmartFill = useCallback(() => setSettings((s) => ({ ...s, smartAngle: DEFAULT_SMART_ANGLE, smartScale: DEFAULT_SMART_SCALE, smartScaleSensitivity: undefined })), []);
 
-  const { radius, smartAngle, smartScale } = settings;
+  const { radius, smartAngle, smartScale, smartScaleSensitivity } = settings;
   useEffect(() => {
-    savePaintPrefs({ radius, smartAngle, smartScale, fillAdvancedOpen });
-  }, [radius, smartAngle, smartScale, fillAdvancedOpen]);
+    savePaintPrefs({ radius, smartAngle, smartScale, smartScaleSensitivity, fillAdvancedOpen });
+  }, [radius, smartAngle, smartScale, smartScaleSensitivity, fillAdvancedOpen]);
 
   // A new project starts with its first color selected.
   useEffect(() => {

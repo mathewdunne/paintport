@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { angleToSensitivity, clampSmartScale, DEFAULT_SMART_ANGLE, sensitivityToAngle } from "./sensitivity";
+import { angleToSensitivity, clampSmartScale, DEFAULT_SMART_ANGLE, sensitivityToAngle, sensitivityToScale } from "./sensitivity";
 
 describe("edge sensitivity", () => {
   it("puts the default angle in the middle, loose angles low and strict ones high", () => {
@@ -36,5 +36,29 @@ describe("edge sensitivity", () => {
     expect(clampSmartScale(-1)).toBe(0);
     expect(clampSmartScale(null)).toBeNull();
     expect(clampSmartScale(Number.NaN)).toBeNull();
+  });
+
+  it("keeps the automatic feature size in the middle and adjusts it continuously at the extremes", () => {
+    for (const auto of [0, 0.2, 0.74, 1.5]) {
+      for (const position of [0.25, 0.5, 0.75]) expect(sensitivityToScale(position, auto)).toBe(auto);
+      expect(sensitivityToScale(0, auto)).toBe(Math.max(1, auto));
+      expect(sensitivityToScale(1, auto)).toBe(0);
+      expect(sensitivityToScale(0.125, auto)).toBeCloseTo((auto + Math.max(1, auto)) / 2);
+      expect(sensitivityToScale(0.875, auto)).toBeCloseTo(auto / 2);
+      let previous = Infinity;
+      for (let i = 0; i <= 100; i++) {
+        const scale = sensitivityToScale(i / 100, auto);
+        expect(scale).toBeLessThanOrEqual(previous);
+        previous = scale;
+      }
+      expect(sensitivityToScale(0.25 - 1e-8, auto)).toBeCloseTo(auto);
+      expect(sensitivityToScale(0.75 + 1e-8, auto)).toBeCloseTo(auto);
+    }
+  });
+
+  it("clamps feature size sensitivity and treats invalid positions as the default", () => {
+    expect(sensitivityToScale(-1, 0.2)).toBe(1);
+    expect(sensitivityToScale(2, 0.2)).toBe(0);
+    expect(sensitivityToScale(Number.NaN, 0.2)).toBe(0.2);
   });
 });
