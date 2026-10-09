@@ -20,7 +20,7 @@ import { Viewport } from "@/ui/Viewport";
 export default function App() {
   const session = useSession();
   const { project } = session;
-  const { settings, patch, step } = usePaintSettings(project);
+  const { settings, patch, step, resetSmartFill, fillAdvancedOpen, setFillAdvancedOpen } = usePaintSettings(project);
   const visibility = useObjectVisibility(project);
   const { view, setView } = useViewMode(project);
   const toolsOn = toolsEnabled(view);
@@ -72,6 +72,9 @@ export default function App() {
             onTab={setTab}
             settings={settings}
             onSettings={patch}
+            fillAdvancedOpen={fillAdvancedOpen}
+            onFillAdvancedOpen={setFillAdvancedOpen}
+            onResetSmartFill={resetSmartFill}
             hiddenObjects={visibility.hidden}
             onToggleObject={visibility.toggle}
             onSoloObject={visibility.solo}

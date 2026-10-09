@@ -77,15 +77,21 @@ all unpainted surface of that object. Exports keep the slicer's base-extruder se
 - **Shell fill**: bucket-fills the whole connected shell under the cursor (e.g. a
   separate eye or button piece).
 - **Smart fill**: flood fill from the clicked triangle that stops at edges sharper than
-  an angle threshold (slider, default 20°, Q9.2) and at existing paint boundaries.
-  A **feature size** slider (Q9.1, default 0.2 mm (Q9.2), 0–1 mm, Off = edge by edge) measures the bend on the surface
-  smoothed over that size instead of edge by edge, so sculpt/scan texture neither stops
-  the fill nor leaves specks, and a soft crease several triangles wide reads as one band
-  (`src/doc/featureField.ts`). The fill then climbs into the band up to its middle and
-  fills holes smaller than the feature size that it surrounds. On a mesh whose triangles
-  are as big as the feature size it is the plain edge-by-edge fill. On the user's Yoshi
-  (500k triangles, 0.08 mm edges) 0.2 mm at 20° fills the pupil cleanly where the plain
-  fill leaks into the whole model; the bend field costs ~0.35 s once per feature size.
+  an angle threshold and at existing paint boundaries. The panel shows one **Edge
+  sensitivity** slider (Q9.3; "Bigger regions" to "Finer details", 60° to 5°, the default
+  20° in the middle, Q9.2). An **Advanced** section holds the raw **edge angle** and the
+  **feature size** (Q9.1): the bend is measured on the surface smoothed over that size
+  instead of edge by edge, so sculpt/scan texture neither stops the fill nor leaves specks,
+  and a soft crease several triangles wide reads as one band (`src/doc/featureField.ts`).
+  The fill then climbs into the band up to its middle and fills holes smaller than the
+  feature size that it surrounds. Feature size defaults to **Auto**: 5 triangle spacings
+  per mesh, or edge by edge when at least 10% of the mesh's edges join coplanar triangles
+  (CAD exports: 15-50%, sculpts and scans: 0.2-1.2%). Dragging it sets a manual size in
+  world mm (0 = Off); "Reset to defaults" restores 20° and Auto. The slider values and
+  whether Advanced is open are remembered in localStorage (`paintportplus.paint`). On the
+  user's Yoshi (500k triangles, 0.08 mm edges in file units, placed at 2.2x) Auto picks
+  0.48 mm and fills the pupil cleanly where the edge-by-edge fill leaks into the whole
+  model; the bend field costs ~0.35 s once per feature size.
 - **Eraser**: brush that paints state 0 (base). Also available as a modifier while
   brushing (_default: hold `Shift`_).
 - **Undo/redo**: `Ctrl+Z` / `Ctrl+Shift+Z`, _default 200 steps_.
@@ -424,4 +430,5 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q8.3 | Print view | View-only (tools disabled); Export tab doesn't switch views |
 | Q8.4 | Export layout | Everything stacked in the Export tab |
 | Q9.1 | Smart fill on character models | Try the feature-size fill first ("option 1"); seeded segmentation (option 2) and in-browser SAM later if needed; no LLM API |
-| Q9.2 | Smart fill defaults | Feature size 0.2 mm, edge angle 20° (was 30° edge by edge) |
+| Q9.2 | Smart fill defaults | Edge angle 20° (was 30° edge by edge); feature size 0.2 mm, later Auto (Q9.3) |
+| Q9.3 | Smart fill controls | One "Edge sensitivity" slider; edge angle and feature size under a remembered Advanced section; feature size Auto per mesh; sliders remembered; Reset to defaults |

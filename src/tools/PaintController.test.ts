@@ -539,6 +539,19 @@ describe("fills", () => {
     expect(scales.map((s) => +s.toFixed(6))).toEqual([0.2, 0.3, 0.3]); // the cube is scaled up 2x in the world
   });
 
+  it("smart fill uses the mesh's own feature size when it is automatic", () => {
+    const { project, down, up } = setup({ tool: "smartFill", smartScale: null }, cubeMesh(), "2 0 0 0 2 0 0 0 2 0 0 0");
+    const scales: number[] = [];
+    const region = project.smartFillRegion.bind(project);
+    project.autoFeatureScale = () => 0.123;
+    project.smartFillRegion = (object, seed, angle, scale = 0) => {
+      scales.push(scale);
+      return region(object, seed, angle, scale);
+    };
+    down(); up();
+    expect(scales).toEqual([0.123]); // already in the object's units: no transform conversion
+  });
+
   it("previews the region on hover without painting, and clears it when the pointer leaves", () => {
     const { project, view, env, hover, fire, el } = setup({ tool: "smartFill" });
     hover(50);

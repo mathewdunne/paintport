@@ -17,7 +17,51 @@ const CACHE_SIZE = 4;
 /** A crease of total bend B, smoothed with a Gaussian of sigma = scale / 2, peaks at B / (sqrt(2 pi) sigma): this undoes that. */
 const CREASE_GAIN = Math.sqrt(2 * Math.PI) / 2;
 
+/** The automatic feature size, in triangle spacings (0.2 mm on a sculpt with 0.08 mm edges). */
+const AUTO_SPACINGS = 5;
+/**
+ * Edges flatter than this join coplanar triangles. CAD exports split every flat face and
+ * every cylinder strip into such pairs (15-50% of their edges on sample parts); sculpts and
+ * scans have almost none (0.2-1.2%). A mesh with at least FLAT_SHARE of them is compared
+ * edge by edge: smoothing would only blur its hard edges and small features.
+ */
+const FLAT_DEG = 0.05;
+const FLAT_SHARE = 0.1;
+
 const cacheOf = new WeakMap<MeshTopology, Map<number, Float32Array | null>>();
+const autoOf = new WeakMap<MeshTopology, number>();
+
+/**
+ * A feature size (object units) suited to the mesh: a few triangle spacings on a sculpted or
+ * scanned surface, 0 (compare neighboring faces) on a mesh made of flat facets, like most CAD
+ * exports. Cached per topology.
+ */
+export function autoFeatureScale(topology: MeshTopology): number {
+  const cached = autoOf.get(topology);
+  if (cached !== undefined) return cached;
+  const n = topology.triCount;
+  const normals = topology.faceNormals();
+  const { vertices, tris } = topology.mesh;
+  const centroid = (t: number, i: number) => (vertices[tris[t * 3] * 3 + i] + vertices[tris[t * 3 + 1] * 3 + i] + vertices[tris[t * 3 + 2] * 3 + i]) / 3;
+  const cosFlat = Math.cos((FLAT_DEG * Math.PI) / 180);
+  let edges = 0, flat = 0, spacing = 0;
+  for (let t = 0; t < n; t++) {
+    for (let k = 0; k < 3; k++) {
+      const code = topology.neighbors[t * 3 + k];
+      if (code < 0) continue;
+      const u = neighborTri(code);
+      if (u < t) continue; // each edge once
+      let dot = normals[t * 3] * normals[u * 3] + normals[t * 3 + 1] * normals[u * 3 + 1] + normals[t * 3 + 2] * normals[u * 3 + 2];
+      if (neighborFlipped(code)) dot = -dot;
+      edges++;
+      if (dot > cosFlat) flat++;
+      spacing += Math.hypot(centroid(t, 0) - centroid(u, 0), centroid(t, 1) - centroid(u, 1), centroid(t, 2) - centroid(u, 2));
+    }
+  }
+  const scale = edges > 0 && flat < edges * FLAT_SHARE ? (AUTO_SPACINGS * spacing) / edges : 0;
+  autoOf.set(topology, scale);
+  return scale;
+}
 
 /**
  * Up to three neighbor codes (as in `MeshTopology.neighbors`) of `src` written to `out`; the

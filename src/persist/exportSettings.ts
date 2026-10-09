@@ -70,7 +70,7 @@ function read(storage: KeyValueStorage, key: string): string | null {
 }
 
 /** localStorage, or null where the browser denies even looking at it. */
-function browserStorage(): KeyValueStorage | null {
+export function browserStorage(): KeyValueStorage | null {
   try {
     return globalThis.localStorage ?? null;
   } catch {

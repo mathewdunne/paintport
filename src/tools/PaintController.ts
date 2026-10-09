@@ -391,9 +391,10 @@ export class PaintController {
       : this.project.smartFillRegion(hit.object, hit.tri, this.settings.smartAngle, this.objectScale(hit));
   }
 
-  /** The smart fill feature size in the object's own units (0 = off). */
+  /** The smart fill feature size in the object's own units (0 = off): the mesh's own when automatic. */
   private objectScale(hit: PickHit): number {
     const scale = this.settings.smartScale;
+    if (scale === null) return this.project.autoFeatureScale(hit.object);
     return scale > 0 ? objectSpaceSphere(this.project.objects[hit.object].transform, hit.point, scale).radius : 0;
   }
 
@@ -464,7 +465,7 @@ export class PaintController {
    * last computation was slow (a huge region), recomputation waits until the pointer rests.
    */
   private previewFill(hit: PickHit): void {
-    const key = `${this.settings.tool}|${hit.object}|${this.settings.tool === "smartFill" ? `${this.settings.smartAngle}|${this.settings.smartScale}` : ""}|${this.epoch}`;
+    const key = `${this.settings.tool}|${hit.object}|${this.settings.tool === "smartFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}` : ""}|${this.epoch}`;
     if (key === this.fillKey && this.view.isRegionHighlighted(hit.object, hit.tri)) return;
     if (!this.fillReady && this.lastFillMs >= SLOW_FILL_MS) {
       this.env.clearTimer(this.fillTimer);

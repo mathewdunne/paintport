@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cubeMesh, makeModel, type MeshSpec } from "../../test/support/docFixtures";
 import { makeRng } from "../../test/support/prng";
-import { featureBend } from "./featureField";
+import { autoFeatureScale, featureBend } from "./featureField";
 import { createProject, type Project } from "./project";
 
 const SPACING = 0.05;
@@ -103,6 +103,15 @@ describe("smart fill with a feature size", () => {
     const p = projectOf(cubeMesh());
     for (const angle of [30, 100]) expect(Array.from(p.smartFillRegion(0, 0, angle, 0.3))).toEqual(Array.from(p.smartFillRegion(0, 0, angle)));
     expect(featureBend(p.topology(0), 0.3)).toBeNull();
+  });
+
+  it("picks a feature size a few triangles wide on a textured mesh, and none on flat facets", () => {
+    const textured = projectOf(mesh).topology(0);
+    const scale = autoFeatureScale(textured);
+    expect(scale).toBeGreaterThan(3 * SPACING);
+    expect(scale).toBeLessThan(8 * SPACING);
+    expect(autoFeatureScale(textured)).toBe(scale);
+    expect(autoFeatureScale(projectOf(cubeMesh()).topology(0))).toBe(0); // every face split into coplanar pairs
   });
 
   it("computes the bend once per feature size", () => {

@@ -4,6 +4,7 @@ import { importDesign, type DesignImportOptions } from "./designImport";
 import { resolveTriangleState } from "./display";
 import { DocError } from "./errors";
 import type { ProjectEvent, ProjectListener } from "./events";
+import { autoFeatureScale } from "./featureField";
 import { featureFill, shellFill, smartFill } from "./fill";
 import { hashGeometry, newProjectId } from "./geometryHash";
 import { MeshTopology } from "./meshTopology";
@@ -459,6 +460,11 @@ export class Project {
    * (object units, > 0) the bend is measured over that size instead (see `featureFill`).
    * Does not paint.
    */
+  /** A smart fill feature size suited to the object's mesh, in its own units; 0 for a mesh of flat facets (see `autoFeatureScale`). */
+  autoFeatureScale(objectIndex: number): number {
+    return autoFeatureScale(this.topology(objectIndex));
+  }
+
   smartFillRegion(objectIndex: number, seedTri: number, angleDeg: number, scale = 0): Uint32Array {
     const object = this.objects[objectIndex];
     const display = {
