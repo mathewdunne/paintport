@@ -205,6 +205,7 @@ export function useSession() {
     error: importer.error,
     dismissError: importer.dismissError,
     notices,
+    notify,
     dismissNotice: dismiss,
     requestImport,
     canStartNew,

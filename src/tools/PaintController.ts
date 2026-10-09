@@ -86,6 +86,8 @@ export class PaintController {
   /** Smoothed cost of one dab, to size the per-frame dab budget. */
   private dabMs = 0.1;
   private disposed = false;
+  /** False in the Print view: the controller ignores the pointer and shows nothing. */
+  private enabled = true;
   private readonly unsubscribe: Array<() => void> = [];
 
   constructor(
@@ -140,6 +142,26 @@ export class PaintController {
     this.schedule();
   }
 
+  /**
+   * Turns the tools on or off (off in the Print view, which is view-only). Off: an open stroke
+   * ends, all hover feedback goes away and pointer input is left to the viewer (orbit and pan),
+   * so a left drag does not paint and a click does not pick a color.
+   */
+  setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled || this.disposed) return;
+    this.enabled = enabled;
+    this.altClick.cancel();
+    if (!enabled) {
+      this.finishStroke();
+      this.gesture = "none";
+      this.clearHover();
+      this.view.setCursor("");
+      return;
+    }
+    this.hoverDirty = true;
+    this.schedule();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -161,7 +183,7 @@ export class PaintController {
   };
 
   private readonly onPointerDown = (e: PointerEvent): void => {
-    if (e.pointerType === "touch" || this.disposed) return;
+    if (e.pointerType === "touch" || this.disposed || !this.enabled) return;
     this.track(e);
     if (this.stroke) return;
     if (e.button === 0 && !e.altKey) {
@@ -188,7 +210,7 @@ export class PaintController {
   };
 
   private readonly onPointerMove = (e: PointerEvent): void => {
-    if (e.pointerType === "touch" || this.disposed) return;
+    if (e.pointerType === "touch" || this.disposed || !this.enabled) return;
     this.track(e);
     if (this.stroke) {
       if (e.pointerId !== this.stroke.pointerId) return;
@@ -209,7 +231,7 @@ export class PaintController {
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
-    if (e.pointerType === "touch" || this.disposed) return;
+    if (e.pointerType === "touch" || this.disposed || !this.enabled) return;
     this.track(e);
     if (this.stroke) {
       // pointerup reports the last button released: a right release must not end a stroke that the left button owns.
@@ -379,10 +401,10 @@ export class PaintController {
   // --- hover feedback --------------------------------------------------------------------
 
   private schedule(): void {
-    if (this.frame || this.disposed) return;
+    if (this.frame || this.disposed || !this.enabled) return;
     this.frame = this.env.raf(() => {
       this.frame = 0;
-      if (this.disposed) return;
+      if (this.disposed || !this.enabled) return;
       try {
         if (this.stroke) {
           if (this.strokeDirty) {

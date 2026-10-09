@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Project } from "@/doc/project";
+import { cn } from "@/lib/utils";
 import { strings } from "@/strings";
 import type { PaintSettings } from "@/tools/types";
 import { ModelCanvas } from "./ModelCanvas";
 import type { HiddenObjects } from "./objectVisibility";
 import type { Notice } from "./useNotices";
+import { toolsEnabled, type ViewMode } from "./viewMode";
 import { SELECTED_TOGGLE } from "./selectedStyle";
 
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
@@ -19,6 +21,11 @@ interface ViewportProps {
   settings: PaintSettings;
   /** The eyedropper picked a design color. */
   onPickState: (state: number) => void;
+  /** Design colors or the Print preview. */
+  view: ViewMode;
+  onViewChange: (view: ViewMode) => void;
+  /** Colors of the Print preview per design state, or null in the Design view. */
+  printColors: readonly (string | undefined)[] | null;
   /** What the app is busy with (reading a file, restoring the last session), or null. */
   busy: string | null;
   error: string | null;
@@ -31,7 +38,7 @@ interface ViewportProps {
   onImportFiles: (files: ArrayLike<File>) => void;
 }
 
-export function Viewport({ project, settings, onPickState, busy, error, hiddenObjects, notices, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
+export function Viewport({ project, settings, onPickState, view, onViewChange, printColors, busy, error, hiddenObjects, notices, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
   const [dragging, setDragging] = useState(false);
   const [viewerFailed, setViewerFailed] = useState(false);
   const depth = useRef(0); // dragenter/dragleave also fire for children
@@ -68,7 +75,15 @@ export function Viewport({ project, settings, onPickState, busy, error, hiddenOb
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <ModelCanvas project={project} settings={settings} hiddenObjects={hiddenObjects} onPickState={onPickState} onFailed={() => setViewerFailed(true)} />
+      <ModelCanvas
+        project={project}
+        settings={settings}
+        hiddenObjects={hiddenObjects}
+        onPickState={onPickState}
+        toolsEnabled={toolsEnabled(view)}
+        printColors={printColors}
+        onFailed={() => setViewerFailed(true)}
+      />
 
       {!project && !busy && !viewerFailed && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -124,14 +139,18 @@ export function Viewport({ project, settings, onPickState, busy, error, hiddenOb
         </div>
       )}
 
-      {/* Design is the only view until phase 3 (mapping), so Print is disabled. */}
-      <div className="absolute inset-x-0 bottom-4 flex justify-center">
+      <div className="absolute inset-x-0 bottom-4 flex flex-col items-center gap-2">
+        {/* Always in the page, so a screen reader hears the text when it appears. */}
+        <p role="status" className="rounded-md bg-background/90 px-2.5 py-1 text-xs text-muted-foreground shadow-sm empty:sr-only">
+          {view === "print" ? strings.viewport.printNote : null}
+        </p>
         <ToggleGroup
           type="single"
           variant="outline"
           size="sm"
-          value="design"
-          onValueChange={() => {}} // Design is the only view for now
+          value={view}
+          // Radix emits "" when the selected item is clicked again; keep the current view.
+          onValueChange={(v) => v && project && onViewChange(v as ViewMode)}
           aria-label={strings.viewport.viewMode}
           className="bg-background shadow-sm"
         >
@@ -140,12 +159,16 @@ export function Viewport({ project, settings, onPickState, busy, error, hiddenOb
           </ToggleGroupItem>
           <Tooltip>
             <TooltipTrigger asChild>
-              {/* aria-disabled, not disabled: the button keeps its name ("Print") and takes hover and focus, so the tooltip works without a wrapper. */}
-              <ToggleGroupItem value="print" aria-disabled="true" className="cursor-not-allowed px-3 opacity-50 hover:bg-transparent">
+              {/* aria-disabled, not disabled: the button keeps hover and focus, so the tooltip works without a model too. */}
+              <ToggleGroupItem
+                value="print"
+                aria-disabled={!project || undefined}
+                className={cn("px-3", SELECTED_TOGGLE, !project && "cursor-not-allowed opacity-50 hover:bg-transparent")}
+              >
                 {strings.viewport.print}
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="top">{strings.viewport.printSoon}</TooltipContent>
+            <TooltipContent side="top">{strings.viewport.printHint}</TooltipContent>
           </Tooltip>
         </ToggleGroup>
       </div>

@@ -17,7 +17,7 @@ import { DocError } from "./errors";
 import { hashGeometry } from "./geometryHash";
 import { inspectTree, isSplitTree } from "./paintTree";
 import { clonePin, pinProblem, type MappingPin } from "./pins";
-import { Project } from "./project";
+import { Project, type ProjectOptions } from "./project";
 import type { PaintField, State } from "./paintField";
 import { TrianglePaintField } from "./trianglePaintField";
 import { hasBaseColor, NO_PART, partId, type DesignColor, type PartId, type ProjectObject, type ProjectPart } from "./types";
@@ -267,7 +267,7 @@ function checkPaint(raw: unknown, geometry: GeometrySnapshot, paintable: Uint8Ar
  * projects): the caller should then start fresh. Takes ownership of the snapshots' arrays
  * (they become the project's), so do not reuse them afterwards.
  */
-export function fromSnapshot(snapshot: unknown): Project {
+export function fromSnapshot(snapshot: unknown, options: ProjectOptions = {}): Project {
   try {
     if (!isRec(snapshot)) throw invalid("not a project snapshot");
     // Both versions first, so damage found in one half never hides that the other one is from another version.
@@ -297,7 +297,7 @@ export function fromSnapshot(snapshot: unknown): Project {
       return { index, name: o.name, printable: o.printable, transform: o.transform, fileExtruder: o.fileExtruder, triCount, parts, triPart, paintable: masks[index], mesh };
     });
     const mapping = new Map<State, MappingPin>((paint.mapping ?? []).map(([state, pin]) => [state, clonePin(pin)]));
-    return new Project({ palette, objects, fields, baseColor, source: geometry.source, mapping, projectId: geometry.projectId });
+    return new Project({ ...options, palette, objects, fields, baseColor, source: geometry.source, mapping, projectId: geometry.projectId });
   } catch (e) {
     if (e instanceof DocError) throw e;
     throw invalid(e instanceof Error ? e.message : String(e)); // anything unforeseen in hostile data is still just "invalid"

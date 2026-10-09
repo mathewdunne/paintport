@@ -1,6 +1,6 @@
 import { normalizeHex, type Filament, type Model, type PaintDialect, type SourceIdentity } from "../core";
 import { generateDistinctColors } from "./colors";
-import { importDesign } from "./designImport";
+import { importDesign, type DesignImportOptions } from "./designImport";
 import { resolveTriangleState } from "./display";
 import { DocError } from "./errors";
 import type { ProjectEvent, ProjectListener } from "./events";
@@ -711,7 +711,7 @@ export class Project {
   }
 }
 
-export interface CreateProjectOptions extends ProjectOptions {
+export interface CreateProjectOptions extends ProjectOptions, DesignImportOptions {
   /** Base name of the imported file, without extension (kept in `source.name`). */
   name?: string;
 }
@@ -722,8 +722,8 @@ export interface CreateProjectOptions extends ProjectOptions {
  * `known: false`.
  */
 export function createProject(model: Model, options: CreateProjectOptions = {}): Project {
-  const { name, ...projectOptions } = options;
-  const { palette, objects, fields, baseColor } = importDesign(model);
+  const { name, plainNames, ...projectOptions } = options;
+  const { palette, objects, fields, baseColor } = importDesign(model, { plainNames });
   return new Project({
     ...projectOptions,
     palette,

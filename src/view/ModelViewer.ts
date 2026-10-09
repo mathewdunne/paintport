@@ -30,7 +30,8 @@ interface ViewObjectEntry {
  * three.js viewport. Owns the renderer, camera and controls; the document owns the data.
  * Renders on demand (control change, resize, data change), never in a loop. No React.
  *
- * Mouse mapping: the left button is reserved for tools and does nothing here. Right drag
+ * Mouse mapping: the left button is reserved for tools and does nothing here, unless
+ * `setLeftDragOrbits(true)` (the tools are off) turns it into an orbit. Right drag
  * orbits, middle drag and Shift+right drag pan, the wheel zooms toward the cursor, and
  * Alt+left drag orbits (trackpads).
  *
@@ -63,6 +64,7 @@ export class ModelViewer implements PaintView {
   private pickerToken = 0;
   private pickerTimer = 0;
   private dark = false;
+  private leftOrbits = false;
   private raf = 0;
   private disposed = false;
 
@@ -201,6 +203,11 @@ export class ModelViewer implements PaintView {
     this.sceneEpoch++;
     this.requestRender();
     this.notifyViewChange();
+  }
+
+  /** Lets the left button orbit, for when no tool uses it (the view-only Print view). Alt+left always orbits. */
+  setLeftDragOrbits(orbits: boolean): void {
+    this.leftOrbits = orbits;
   }
 
   setDark(dark: boolean): void {
@@ -440,7 +447,7 @@ export class ModelViewer implements PaintView {
 
   private readonly onPointerDownCapture = (e: PointerEvent): void => {
     if (e.pointerType === "touch") return;
-    this.controls.mouseButtons.LEFT = e.altKey ? MOUSE.ROTATE : null;
+    this.controls.mouseButtons.LEFT = e.altKey || this.leftOrbits ? MOUSE.ROTATE : null;
   };
 
   private readonly onContextMenu = (e: Event): void => e.preventDefault();

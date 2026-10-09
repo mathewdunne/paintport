@@ -15,9 +15,11 @@ interface HeaderProps {
   /** "New" needs something to discard: a project, or a saved session of a newer version. */
   canStartNew: boolean;
   onNew: () => void;
+  /** False in the Print view (view-only): undo and redo are off there. */
+  canEdit: boolean;
 }
 
-export function Header({ project, onImportFiles, canImport, canStartNew, onNew }: HeaderProps) {
+export function Header({ project, onImportFiles, canImport, canStartNew, onNew, canEdit }: HeaderProps) {
   const input = useRef<HTMLInputElement>(null);
   const { canUndo, canRedo } = useHistoryState(project);
 
@@ -34,7 +36,7 @@ export function Header({ project, onImportFiles, canImport, canStartNew, onNew }
         <div className="flex items-center">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" disabled={!canUndo} onClick={() => project?.undo()} aria-label={strings.header.undo}>
+              <Button variant="ghost" size="icon-sm" disabled={!canUndo || !canEdit} onClick={() => project?.undo()} aria-label={strings.header.undo}>
                 <Undo2 />
               </Button>
             </TooltipTrigger>
@@ -42,7 +44,7 @@ export function Header({ project, onImportFiles, canImport, canStartNew, onNew }
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" disabled={!canRedo} onClick={() => project?.redo()} aria-label={strings.header.redo}>
+              <Button variant="ghost" size="icon-sm" disabled={!canRedo || !canEdit} onClick={() => project?.redo()} aria-label={strings.header.redo}>
                 <Redo2 />
               </Button>
             </TooltipTrigger>

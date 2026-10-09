@@ -5,22 +5,15 @@
 // missing, blocked or full (private windows, sandboxed frames).
 import { normalizeHex } from "../core";
 import {
-  defaultSpools, EXPORT_TARGET_IDS, EXPORT_TARGETS, MAX_SPOOLS, type ExportTargetId, type Spool,
+  defaultSpools, EXPORT_TARGET_IDS, EXPORT_TARGETS, MAX_SPOOLS, type ExportSettings, type ExportTargetId, type Spool,
 } from "../doc/mapping";
+
+export type { ExportSettings } from "../doc/mapping";
 
 export const EXPORT_SETTINGS_KEY = "paintportplus.export";
 /** Keys of the classic tool (public/classic/index.html): read once to seed a first run, never written. */
 export const CLASSIC_SLOTS_KEY = "paintport_slots";
 export const CLASSIC_PRINTER_N_KEY = "paintport_printerN";
-
-export interface ExportSettings {
-  target: ExportTargetId;
-  /** Extruder count per target, 1..16. */
-  printerCount: Record<ExportTargetId, number>;
-  /** Always 16 spools, slot 1..16 in order, shared by all targets. */
-  spools: Spool[];
-  allowMix: boolean;
-}
 
 /** The part of the Storage interface used here; tests pass an in-memory one. */
 export interface KeyValueStorage {

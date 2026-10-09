@@ -4,7 +4,8 @@
  * the same keys mean something else (typing a hex value, typeahead in a menu, arrows on the
  * color area). The Radix popover and dialog content carry role="dialog", menus role="menu".
  * Buttons, tool toggles, tabs and sliders are not listed on purpose: after clicking a tool or
- * dragging the brush size, the shortcuts keep working.
+ * dragging the brush size, the shortcuts keep working. A closed select trigger (role=combobox) is
+ * not listed either: focus returns to it after a choice, and the shortcuts must work again then.
  */
 export const SHORTCUT_BLOCKERS = [
   "input",
@@ -16,7 +17,7 @@ export const SHORTCUT_BLOCKERS = [
   "[role='menu']",
   "[role='menubar']",
   "[role='listbox']",
-  "[role='combobox']",
+  "[role='combobox'][aria-expanded='true']",
   "[data-slot='popover-content']",
   ".react-colorful",
   "[data-no-shortcuts]",

@@ -5,8 +5,12 @@
 // Slic3r_PE_model.config), as inspected when the importer was written.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { load3MF } from "../src/core";
+import { load3MF, zipAll } from "../src/core";
+import { buildExport } from "../src/doc/export";
+import { importProject } from "../src/doc/importProject";
+import { applyFileSpools, fileSpools } from "../src/doc/mapping";
 import { createProject } from "../src/doc/project";
+import { defaultExportSettings } from "../src/persist/exportSettings";
 
 const path = process.env.REAL_3MF;
 
@@ -61,7 +65,47 @@ describe.skipIf(!path)("real PrusaSlicer project (REAL_3MF)", () => {
     // The design palette uses the known colors, with the recipes as hints.
     const project = createProject(model);
     expect(project.palette).toHaveLength(15);
-    expect(project.palette[5]).toEqual({ color: "#30F845", mix: [{ extruder: 1, ratio: 0.5 }, { extruder: 3, ratio: 0.5 }] });
+    expect(project.palette[5]).toEqual({ color: "#30F845", known: true, mix: [{ extruder: 1, ratio: 0.5 }, { extruder: 3, ratio: 0.5 }] });
     expect([...project.baseColor.values()]).toEqual([4, 4]);
   }, 600_000);
+
+  it("exports a full PrusaSlicer project and re-imports it from its sidecar", async () => {
+    const bytes = readFileSync(path!);
+    const input = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const lap = (() => { let t = performance.now(); return () => { const n = performance.now(); const d = n - t; t = n; return `${(d / 1000).toFixed(1)} s`; }; })();
+    const first = await importProject("goldfish_colormix_4t.3mf", input);
+    const importTime = lap();
+    expect(first.sidecar).toBe("none");
+    const project = first.project;
+
+    // The file's own 4 spools on a 4-extruder printer: its ColorMix recipes resolve as hints.
+    const settings = defaultExportSettings();
+    settings.target = "prusa";
+    settings.printerCount.prusa = 4;
+    settings.spools = applyFileSpools(settings.spools, fileSpools(project.source), 4);
+    const exported = buildExport(project, settings, { date: "2026-10-08" });
+    const exportTime = lap();
+    const zipped = await zipAll(exported.entries);
+    const zipTime = lap();
+    expect(exported.virtualCount).toBeGreaterThan(0);
+
+    const back = await importProject(exported.fileName, zipped);
+    const reimportTime = lap();
+    expect(back.reason).toBeUndefined();
+    expect(back.sidecar).toBe("restored");
+    console.log(`goldfish round trip: import ${importTime}, buildExport ${exportTime} (${exported.virtualCount} blends, ${exported.entries.length} files), zipAll ${zipTime} -> ${(zipped.length / 1e6).toFixed(0)} MB, re-import with sidecar ${reimportTime}`);
+
+    expect(back.project.palette).toEqual(project.palette);
+    expect([...back.project.mapping]).toEqual([...project.mapping]);
+    expect([...back.project.baseColor.values()]).toEqual([...project.baseColor.values()]);
+    expect(back.project.source.name).toBe("goldfish_colormix_4t");
+    project.objects.forEach((o, i) => {
+      const a = project.fields[i], b = back.project.fields[i];
+      expect(back.project.objects[i].triCount).toBe(o.triCount);
+      expect(Buffer.from(b.displayStates().buffer).equals(Buffer.from(a.displayStates().buffer)), `object ${i} states`).toBe(true);
+      const pa = (a as unknown as { preserved: Map<number, string> }).preserved, pb = (b as unknown as { preserved: Map<number, string> }).preserved;
+      expect(pb.size).toBe(pa.size);
+      for (const [t, tree] of pa) expect(pb.get(t), `object ${i} triangle ${t}`).toBe(tree);
+    });
+  }, 1_200_000);
 });

@@ -250,3 +250,15 @@ ColorMix project.
 - **Precedence**: Bambu metadata wins where it exists. Prusa colors and recipes are read
   only when `project_settings.config` has no `filament_colour` list; Prusa extruders apply
   per object that `model_settings.config` does not list.
+
+## 10. The PaintPort+ design sidecar
+
+PaintPort+ exports carry two extra kinds of archive members that slicers ignore:
+`Metadata/PaintPortPlus.json` (palette incl. `known` and `mix` hints, mapping pins, source
+name, and per object the triangle count, a position-based geometry hash and the parts with
+their base design colors) and `Metadata/PaintPortPlus/object_<n>.bin` (the design paint, a
+little-endian binary: `PPDP`, u16 version 1, u16 0, u32 triangle count, u32 preserved count,
+a u16 design state per triangle, then per preserved triangle u32 index, u32 length and the
+tree as upper-case hex in the internal "bbs" dialect). A re-import restores the design from
+them only if everything validates and the geometry hash matches; the layout is described in
+`src/doc/sidecar.ts`.

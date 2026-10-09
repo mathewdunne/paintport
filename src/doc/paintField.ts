@@ -6,6 +6,7 @@
 // notifications. UI code edits through `Project` (project.ts), which validates states,
 // records undo steps and notifies the viewer. Calling a field's edit methods directly
 // bypasses all of that.
+import type { PaintDialect } from "../core";
 
 /** Design-palette index; 0 = unpainted (the part's base color). */
 export type State = number;
@@ -78,6 +79,16 @@ export interface PaintFieldView {
 
   /** True for triangles that can carry paint (ModelPart volumes). Others are never edited. */
   isPaintable(tri: number): boolean;
+
+  /**
+   * The paint of every triangle of `mesh` as a TriangleSelector string in design states, for
+   * export: `null` for an unpainted triangle, a one-leaf string for whole-triangle paint, and
+   * the preserved sub-triangle tree (converted to `dialect`) where the import had one. The
+   * strings carry design states as they are, so `dialect` must be able to encode them (the
+   * "bbs" dialect is unbounded); `buildExport` serializes in "bbs" and lets `build3MF` remap
+   * the states and convert to the target's dialect.
+   */
+  serialize(dialect: PaintDialect): { mesh: EditableMesh; paint: (string | null)[] };
 }
 
 export interface PaintField extends PaintFieldView {
@@ -123,6 +134,4 @@ export interface PaintField extends PaintFieldView {
 
   undoEdit(edit: EditRecord): void;
   redoEdit(edit: EditRecord): void;
-
-  // TODO(phase 3): serialize(dialect): { mesh; paint: (string | null)[] } for export.
 }

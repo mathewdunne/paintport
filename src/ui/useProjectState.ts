@@ -1,9 +1,11 @@
 import { useCallback, useSyncExternalStore } from "react";
+import type { MappingPin } from "@/doc/pins";
 import type { DesignColor, PartId, Project } from "@/doc/project";
 
 const noop = () => {};
 const emptyPalette: readonly DesignColor[] = [];
 const emptyBase: ReadonlyMap<PartId, number> = new Map();
+const emptyPins: ReadonlyMap<number, MappingPin> = new Map();
 
 /**
  * Undo/redo availability. Subscribes to history events only, so React does not re-render
@@ -34,4 +36,13 @@ export function useProjectBase(project: Project | null): ReadonlyMap<PartId, num
     [project],
   );
   return useSyncExternalStore(subscribe, () => (project ? project.baseColor : emptyBase));
+}
+
+/** The mapping pins; a new map whenever one is set, dropped or moved (also by color deletes and their undo). */
+export function useProjectMapping(project: Project | null): ReadonlyMap<number, MappingPin> {
+  const subscribe = useCallback(
+    (onChange: () => void) => (project ? project.subscribe((e) => { if (e.kind === "mapping") onChange(); }) : noop),
+    [project],
+  );
+  return useSyncExternalStore(subscribe, () => (project ? project.mapping : emptyPins));
 }

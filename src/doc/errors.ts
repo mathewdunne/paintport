@@ -15,7 +15,17 @@ export type DocErrorCode =
   /** The snapshot was written by another (or no known) format version. */
   | "SNAPSHOT_VERSION"
   /** The snapshot is not a project snapshot, or its contents are inconsistent. */
-  | "SNAPSHOT_INVALID";
+  | "SNAPSHOT_INVALID"
+  /** Export: no spool is switched on (within the printer's extruder count), so nothing can be mapped. */
+  | "EXPORT_NO_SPOOL"
+  /** Export: a used color resolved to no spool or blend. */
+  | "EXPORT_UNMAPPED"
+  /** Export: a used color resolved to a ColorMix blend while "Allow ColorMix" is off. */
+  | "EXPORT_MIX_OFF"
+  /** Export: physical filaments plus blends exceed Bambu Studio's 16 filaments. */
+  | "EXPORT_BAMBU_LIMIT"
+  /** Export: a PrusaSlicer paint string cannot address the highest extruder id (limit 272). */
+  | "EXPORT_TOO_MANY";
 
 /** Typed error of the document layer. Branch on `code`; `message` is for logs, not for users. */
 export class DocError extends Error {

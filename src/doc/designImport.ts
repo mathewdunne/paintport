@@ -7,6 +7,7 @@ import { collectLeafStates, isSplitTree, remapTree } from "./paintTree";
 import type { State } from "./paintField";
 import { hasBaseColor, NO_PART, partId, type DesignColor, type PartId, type ProjectObject, type ProjectPart } from "./types";
 import { TrianglePaintField } from "./trianglePaintField";
+import { unescapeXml } from "./xmlText";
 
 /** Placeholder at palette index 0, which means "base" and is never a real color. */
 export const BASE_SLOT: DesignColor = Object.freeze({ color: "#808080", known: true });
@@ -58,6 +59,11 @@ export function buildPalette(model: Model, used: readonly number[]): DesignColor
   return [BASE_SLOT, ...entries.map((e) => e ?? { color: generated[g++], known: false })];
 }
 
+export interface DesignImportOptions {
+  /** The model's names are plain text (STL, OBJ), not XML attribute text. */
+  plainNames?: boolean;
+}
+
 export interface ImportedDesign {
   palette: DesignColor[];
   objects: ProjectObject[];
@@ -74,8 +80,11 @@ export interface ImportedDesign {
  *   leaf state of its remapped tree.
  * - Paint on non-ModelPart triangles is dropped: it is not drawn and cannot be edited.
  * - ModelParts and ParameterModifiers get a base color; other volumes get none.
+ * - Object and part names are XML-unescaped here, once (the core keeps the raw attribute text
+ *   of a 3MF); `plainNames` skips that for models whose names are not XML (STL and OBJ file names).
  */
-export function importDesign(model: Model): ImportedDesign {
+export function importDesign(model: Model, options: DesignImportOptions = {}): ImportedDesign {
+  const name = options.plainNames ? (s: string) => s : unescapeXml;
   const used = collectUsedStates(model);
   const palette = buildPalette(model, used);
   const toDesign = new Map<number, State>(used.map((s, i) => [s, i + 1]));
@@ -91,7 +100,7 @@ export function importDesign(model: Model): ImportedDesign {
       triPart.fill(pi, p.firstTri, p.firstTri + p.triCount);
       if (p.type === "ModelPart") paintable.fill(1, p.firstTri, p.firstTri + p.triCount);
       if (hasBaseColor(p.type)) baseColor.set(partId(index, pi), design(baseExtruder(p.extruder)));
-      return { id: partId(index, pi), firstTri: p.firstTri, triCount: p.triCount, type: p.type, name: p.name, extruder: p.extruder };
+      return { id: partId(index, pi), firstTri: p.firstTri, triCount: p.triCount, type: p.type, name: p.name === null ? null : name(p.name), extruder: p.extruder };
     });
     const mesh = { vertices: source.vertices, tris: source.tris, triCount };
 
@@ -108,7 +117,7 @@ export function importDesign(model: Model): ImportedDesign {
     }
     fields.push(new TrianglePaintField(mesh, paintable, { states, preserved }));
 
-    return { index, name: source.name, printable: source.printable, transform: source.transform, fileExtruder: source.defaultExtruder, triCount, parts, triPart, paintable, mesh };
+    return { index, name: name(source.name), printable: source.printable, transform: source.transform, fileExtruder: source.defaultExtruder, triCount, parts, triPart, paintable, mesh };
   });
   return { palette, objects, fields, baseColor };
 }

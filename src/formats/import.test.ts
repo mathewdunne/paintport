@@ -32,6 +32,18 @@ describe("importFile", () => {
     expect((await importFile("mesh.txt", asciiStl(CUBE_TRIS))).totalTris).toBe(12);
   });
 
+  it("hands a 3MF's unzipped members to onArchive once, and never calls it for STL or OBJ", async () => {
+    const seen: string[][] = [];
+    const onArchive = (files: ReadonlyMap<string, Uint8Array>) => { seen.push([...files.keys()]); };
+    await importFile("fig.3mf", await zipAll([{ name: "3D/3dmodel.model", data: enc.encode(THREEMF) }, { name: "Metadata/extra.bin", data: new Uint8Array([1]) }]), onArchive);
+    expect(seen).toEqual([["3D/3dmodel.model", "Metadata/extra.bin"]]);
+    await importFile("noext", await threeMf(), onArchive);
+    expect(seen).toHaveLength(2);
+    await importFile("part.stl", binaryStl(CUBE_TRIS), onArchive);
+    await importFile("q.obj", enc.encode("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3"), onArchive);
+    expect(seen).toHaveLength(2);
+  });
+
   it("rejects unsupported content with a typed error", async () => {
     expect(await code(importFile("notes.txt", enc.encode("just some text")))).toBe("ERR_UNSUPPORTED_FORMAT");
     expect(await code(importFile("empty", new Uint8Array(0)))).toBe("ERR_UNSUPPORTED_FORMAT");

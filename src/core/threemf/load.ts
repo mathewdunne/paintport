@@ -86,7 +86,15 @@ function getKey<V>(m: Map<string, V>, key: string | undefined): V | undefined {
 }
 
 export async function load3MF(bytes: Uint8Array): Promise<Model> {
-  const files = await unzipAll(bytes);
+  return load3MFFiles(await unzipAll(bytes));
+}
+
+/**
+ * `load3MF` on an archive that is already unzipped (`unzipAll`), for callers that also need
+ * other members of it (PaintPort+ reads its design sidecar this way) and must not inflate a
+ * multi-hundred-megabyte model twice. `load3MF` is exactly this after unzipping.
+ */
+export function load3MFFiles(files: ReadonlyMap<string, Uint8Array>): Model {
   const td = new TextDecoder();
   const text = (name: string): string | null => files.has(name) ? td.decode(files.get(name)) : null;
   let sawMmuSeg = false; // any slic3rpe:mmu_segmentation attribute -> prusa dialect

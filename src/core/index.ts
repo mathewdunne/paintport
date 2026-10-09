@@ -18,7 +18,7 @@ export {
 export { parseAttrs, parseModelXML } from "./threemf/xml";
 export type { Attrs, ParsedModelXml, XmlBuildItem, XmlComponent, XmlObject } from "./threemf/xml";
 export { applyTransform, composeTransform, parseTransform, type Transform } from "./threemf/transform";
-export { VOLUME_TYPES, load3MF } from "./threemf/load";
+export { VOLUME_TYPES, load3MF, load3MFFiles } from "./threemf/load";
 export { build3MF, buildPrusa3MF } from "./threemf/build";
 export { deltaE, hexToRgb, linearToSrgb, normalizeHex, rgbToHex, rgbToLab, srgbToLinear, type Lab, type Rgb } from "./color";
 export { bestMix, predictMix, topMixes, type MixCandidate, type MixComponent, type MixInput, type MixSlot } from "./mix";

@@ -1,5 +1,6 @@
+import { emitPaintTree, remapPaintString, type PaintDialect } from "../core";
 import type { BrushOpts, EditableMesh, EditRecord, PaintField, State, Vec3 } from "./paintField";
-import { remapTree } from "./paintTree";
+import { INTERNAL_DIALECT, remapTree } from "./paintTree";
 import { sqDistPointTriangle } from "./triangleMath";
 
 export { isSplitTree } from "./paintTree";
@@ -85,6 +86,25 @@ export class TrianglePaintField implements PaintField {
 
   isPaintable(tri: number): boolean {
     return this.paintable[tri] === 1;
+  }
+
+  serialize(dialect: PaintDialect): { mesh: EditableMesh; paint: (string | null)[] } {
+    const { states, preserved } = this;
+    const paint = new Array<string | null>(states.length).fill(null);
+    const leaves = new Map<number, string>(); // one shared string per state
+    for (let t = 0; t < states.length; t++) {
+      const tree = preserved.size > 0 ? preserved.get(t) : undefined;
+      if (tree !== undefined) {
+        paint[t] = dialect === INTERNAL_DIALECT ? tree : remapPaintString(tree, (s) => s, INTERNAL_DIALECT, dialect).str;
+        continue;
+      }
+      const s = states[t];
+      if (s === 0) continue;
+      let leaf = leaves.get(s);
+      if (leaf === undefined) leaves.set(s, (leaf = emitPaintTree({ state: s }, dialect)));
+      paint[t] = leaf;
+    }
+    return { mesh: this.mesh, paint };
   }
 
   paintSphere(center: Vec3, radius: number, state: State, opts?: BrushOpts): EditRecord {

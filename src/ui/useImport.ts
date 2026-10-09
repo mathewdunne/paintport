@@ -1,17 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createProject, type Project } from "@/doc/project";
-import { importFile } from "@/formats/import";
+import { importProject } from "@/doc/importProject";
+import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
 import { errorMessage } from "./errorMessage";
+import { nextPaint } from "./nextPaint";
 import type { Notify } from "./useNotices";
-
-/** Resolves after the browser has had a chance to paint (so a spinner shows before heavy work). */
-function nextPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, 100); // rAF does not fire in background tabs
-    requestAnimationFrame(() => setTimeout(() => { clearTimeout(timer); resolve(); }, 0));
-  });
-}
 
 /**
  * Holds the open Project and loads files into it. A newer import supersedes an older one
@@ -32,12 +25,16 @@ export function useImport(notify: Notify, dismissNotice: (key: string) => void) 
     setLoading(true);
     setError(null);
     dismissNotice("import");
+    dismissNotice("sidecar");
     if (files.length > 1) notify("import", strings.viewport.oneFileOnly);
     try {
       await nextPaint();
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const next = createProject(await importFile(file.name, bytes), { name: file.name.replace(/\.[^.]*$/, "") });
-      if (id === latest.current) setProject(next);
+      const { project: next, sidecar } = await importProject(file.name, bytes);
+      if (id === latest.current) {
+        setProject(next);
+        if (sidecar === "ignored") notify("sidecar", strings.viewport.sidecarIgnored, { tone: "warning" });
+      }
     } catch (e) {
       if (id === latest.current) setError(errorMessage(e));
     } finally {

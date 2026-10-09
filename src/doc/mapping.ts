@@ -84,6 +84,16 @@ export function defaultSpools(): Spool[] {
   return DEFAULT_SPOOL_COLORS.map((color, i) => ({ slot: i + 1, color, on: i < DEFAULT_SPOOLS_ON }));
 }
 
+/** The export settings that outlive a project (persisted by `persist/exportSettings.ts`): the chosen target, the extruder count per target, the 16 spools and "Allow ColorMix". */
+export interface ExportSettings {
+  target: ExportTargetId;
+  /** Extruder count per target, 1..16. */
+  printerCount: Record<ExportTargetId, number>;
+  /** Always 16 spools, slot 1..16 in order, shared by all targets. */
+  spools: Spool[];
+  allowMix: boolean;
+}
+
 /** What mapping needs to know besides the project. */
 export interface MappingSettings {
   spools: readonly Spool[];

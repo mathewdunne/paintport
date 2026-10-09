@@ -4,9 +4,12 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Project } from "@/doc/project";
+import type { ExportSettings } from "@/persist/exportSettings";
 import { strings } from "@/strings";
 import { formatRadius, radiusToSlider, sliderToRadius } from "@/tools/radius";
 import type { PaintSettings } from "@/tools/types";
+import { ExportTab } from "./export/ExportTab";
+import type { MappingModel } from "./export/mappingView";
 import { ObjectsTab } from "./ObjectsTab";
 import { PaletteSection } from "./palette/PaletteSection";
 import type { HiddenObjects } from "./objectVisibility";
@@ -30,20 +33,33 @@ function SliderRow({ label, value, children }: { label: string; value: string; c
   );
 }
 
+export type PanelTab = "paint" | "objects" | "export";
+
 interface SidePanelProps {
   project: Project | null;
+  tab: PanelTab;
+  onTab: (tab: PanelTab) => void;
   settings: PaintSettings;
   onSettings: (patch: Partial<PaintSettings>) => void;
   hiddenObjects: HiddenObjects;
   onToggleObject: (index: number) => void;
   onSoloObject: (index: number) => void;
   onShowAllObjects: () => void;
+  exportSettings: ExportSettings;
+  onExportSettings: (change: (s: ExportSettings) => ExportSettings) => void;
+  /** The live mapping; computed while the Export tab or the Print view needs it. */
+  mapping: MappingModel | null;
+  onExport: () => void;
+  exporting: boolean;
 }
 
-export function SidePanel({ project, settings, onSettings, hiddenObjects, onToggleObject, onSoloObject, onShowAllObjects }: SidePanelProps) {
+export function SidePanel({
+  project, tab, onTab, settings, onSettings, hiddenObjects, onToggleObject, onSoloObject, onShowAllObjects,
+  exportSettings, onExportSettings, mapping, onExport, exporting,
+}: SidePanelProps) {
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l">
-      <Tabs defaultValue="paint" className="min-h-0 flex-1 gap-0">
+      <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="min-h-0 flex-1 gap-0">
         <div className="p-3">
           <TabsList className="w-full">
             <TabsTrigger value="paint">{strings.panel.paint}</TabsTrigger>
@@ -111,7 +127,14 @@ export function SidePanel({ project, settings, onSettings, hiddenObjects, onTogg
             )}
           </TabsContent>
           <TabsContent value="export">
-            <Empty>{strings.panel.exportEmpty}</Empty>
+            <ExportTab
+              project={project}
+              settings={exportSettings}
+              onSettings={onExportSettings}
+              mapping={mapping}
+              onExport={onExport}
+              exporting={exporting}
+            />
           </TabsContent>
         </div>
       </Tabs>

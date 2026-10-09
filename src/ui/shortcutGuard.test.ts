@@ -15,6 +15,12 @@ describe("shortcut guard", () => {
     }
   });
 
+  it("blocks a select trigger only while its list is open, so shortcuts work again after a choice", () => {
+    const list = SHORTCUT_BLOCKERS.split(",");
+    expect(list).toContain("[role='combobox'][aria-expanded='true']");
+    expect(list).not.toContain("[role='combobox']");
+  });
+
   it("lets buttons, tool toggles, tabs and sliders through, so shortcuts work after clicking them", () => {
     expect(blocksShortcuts(el())).toBe(false);
     for (const s of ["button", "[role='radio']", "[role='tab']", "[role='slider']", "[role='radiogroup']"]) expect(SHORTCUT_BLOCKERS.split(",")).not.toContain(s);

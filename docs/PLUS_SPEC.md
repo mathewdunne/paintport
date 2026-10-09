@@ -223,7 +223,8 @@ interface PaintField {
 
   // For export: the TriangleSelector string per *output* triangle, in design states.
   // build3MF then remaps design states → output extruders through the mapping.
-  serialize(dialect: "prusa" | "bbs"): { mesh: Mesh; paint: (string | null)[] };
+  // Read-only, so it lives on PaintFieldView (Project.fields).
+  serialize(dialect: "prusa" | "bbs"): { mesh: EditableMesh; paint: (string | null)[] };
 }
 ```
 
@@ -258,12 +259,18 @@ Written into every export:
 
 - `Metadata/PaintPortPlus.json`: format version, app version, design palette, base
   colors per part, mapping, and per object the triangle count plus a geometry hash.
-- `Metadata/PaintPortPlus/object_<n>.bin`: the object's design paint. It's the same
-  string-per-triangle data `serialize` produces, in design states, length-prefixed. The
-  ZIP compresses it.
+- `Metadata/PaintPortPlus/object_<n>.bin` (n = 0-based object index): the object's design
+  paint in a small binary layout (magic, version, triangle count, a u16 design state per
+  triangle, then the preserved sub-triangle trees as length-prefixed ASCII). It carries the
+  same information `serialize` produces, without a string per triangle. The layout is
+  documented in `src/doc/sidecar.ts`; the ZIP compresses it.
 
 On import, if the sidecar exists and every object's triangle count and hash match, the
-document is restored from it. Otherwise the sidecar is ignored, with a notice.
+document is restored from it. Otherwise the sidecar is ignored, with a notice. The hash is
+position-based (triangle corner coordinates in triangle order), because the bbs export
+re-indexes vertices. The JSON also stores the source name and the parts of each object
+(range, type, name, base color), since export merges and splits volume ranges. The import
+reads the sidecar from the same unzipping as the model (`load3MFFiles`).
 
 ## 6. Phases
 
@@ -360,8 +367,9 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
      file's spools"), Allow ColorMix, one compact row per used design color (swatch →
      target dropdown: Auto, each active spool, the top blend candidates, each with ΔE),
      warnings, and the Export button. Print view is **view-only**: tools, hover preview and
-     paint shortcuts are disabled while it is on (orbit/pan/zoom still work); the Export
-     tab does not switch the view by itself.
+     paint shortcuts are disabled while it is on, and so are undo/redo; left drag orbits
+     (orbit/pan/zoom still work). Explicit edits in the Paint and Objects tabs stay
+     available. The Export tab does not switch the view by itself.
 4. **More selection tools**: mirror painting, lasso/box (with paint through),
    select-by-color, maybe texture bake.
 5. **Sub-triangle precision**: decide between option 2 and option 3, starting with a

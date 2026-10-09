@@ -17,12 +17,16 @@ interface ModelCanvasProps {
   hiddenObjects: HiddenObjects;
   /** The eyedropper picked a design color. */
   onPickState: (state: number) => void;
+  /** False in the Print view (view-only): the paint tools do nothing and the left button orbits. */
+  toolsEnabled: boolean;
+  /** Colors of the Print view per design state (undefined: show the design color), or null for the Design view. */
+  printColors: readonly (string | undefined)[] | null;
   /** The viewer could not start, build the model or draw it. */
   onFailed: () => void;
 }
 
 /** Mounts the three.js viewer and keeps it in sync with the project and the theme; paint tools act on it. */
-export function ModelCanvas({ project, settings, hiddenObjects, onPickState, onFailed }: ModelCanvasProps) {
+export function ModelCanvas({ project, settings, hiddenObjects, onPickState, toolsEnabled, printColors, onFailed }: ModelCanvasProps) {
   const host = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLDivElement>(null);
   const swatch = useRef<HTMLSpanElement>(null);
@@ -35,6 +39,8 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, onF
   picked.current = onPickState;
   const latestSettings = useRef(settings);
   latestSettings.current = settings;
+  const latestToolsEnabled = useRef(toolsEnabled);
+  latestToolsEnabled.current = toolsEnabled;
 
   // The eyedropper's color chip follows the cursor. Updated through the DOM: it moves with
   // every pointer move, and React need not render for that.
@@ -86,6 +92,7 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, onF
     if (!project || !scene) return;
     const unsync = syncViewerToProject(project, scene, v);
     const ctl = new PaintController(project, v, { onPickState: (s) => picked.current(s), onSwatch: showSwatch }, latestSettings.current);
+    ctl.setEnabled(latestToolsEnabled.current);
     controller.current = ctl;
     return () => {
       ctl.dispose();
@@ -98,6 +105,17 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, onF
   useEffect(() => {
     controller.current?.setSettings(settings);
   }, [settings]);
+
+  // Print view: the tools are off and the left button orbits like the right one.
+  useEffect(() => {
+    controller.current?.setEnabled(toolsEnabled);
+    viewer.current?.setLeftDragOrbits(!toolsEnabled);
+  }, [toolsEnabled]);
+
+  // The color table of the Print view. The viewer keeps it across scenes, so a new project (which starts in Design) resets it here too.
+  useEffect(() => {
+    viewer.current?.setPrintColors(project ? printColors : null);
+  }, [project, printColors]);
 
   // After the scene effect: a new scene starts with everything visible, so the hidden set is applied again.
   useEffect(() => {

@@ -624,3 +624,86 @@ describe("hover feedback", () => {
     expect(view.cursorShown).toBeGreaterThan(shown);
   });
 });
+
+describe("disabled (Print view, view-only)", () => {
+  it("a left press paints nothing, whatever the tool", () => {
+    for (const tool of ["brush", "eraser", "shellFill", "smartFill"] as const) {
+      const { project, controller, down, up } = setup({ tool });
+      controller.setEnabled(false);
+      down();
+      up();
+      expect(painted(project)).toEqual([]);
+      expect(project.undoCount).toBe(0);
+      expect(project.strokeOpen).toBe(false);
+    }
+  });
+
+  it("the eyedropper tool and Alt+click pick nothing", () => {
+    const a = setup({ tool: "eyedropper" });
+    a.controller.setEnabled(false);
+    a.down();
+    a.up();
+    const b = setup();
+    b.controller.setEnabled(false);
+    b.down({ altKey: true });
+    b.up({ altKey: true });
+    expect(a.picked).toEqual([]);
+    expect(b.picked).toEqual([]);
+  });
+
+  it("shows no brush ring, fill preview or color chip while the pointer hovers", () => {
+    const brush = setup();
+    brush.controller.setEnabled(false);
+    brush.hover(50);
+    brush.env.frame();
+    expect(brush.view.cursor).toBeNull();
+    expect(brush.view.cursorShown).toBe(0);
+    const fill = setup({ tool: "smartFill" });
+    fill.controller.setEnabled(false);
+    fill.hover(50);
+    fill.env.frame();
+    expect(fill.view.region).toBeNull();
+    const pipette = setup({ tool: "eyedropper" });
+    pipette.controller.setEnabled(false);
+    pipette.hover(50);
+    pipette.env.frame();
+    expect(pipette.swatches.every((s) => s === null)).toBe(true);
+  });
+
+  it("turning it off mid-stroke closes the stroke and clears the hover feedback", () => {
+    const { project, controller, down, env, view } = setup();
+    down();
+    expect(project.strokeOpen).toBe(true);
+    controller.setEnabled(false);
+    expect(project.strokeOpen).toBe(false);
+    expect(project.undoCount).toBe(1);
+    expect(view.cursor).toBeNull();
+    expect(view.cssCursor).toBe("");
+    env.frame();
+    expect(view.cursor).toBeNull();
+  });
+
+  it("changes in the document or the view do not bring the hover back", () => {
+    const { project, controller, hover, env, view } = setup();
+    hover(50); env.frame();
+    expect(view.cursor).not.toBeNull();
+    controller.setEnabled(false);
+    expect(view.cursor).toBeNull();
+    project.paintTriangles(0, [0], 2);
+    view.changeView();
+    env.frame();
+    expect(view.cursor).toBeNull();
+  });
+
+  it("works again when turned back on", () => {
+    const { project, controller, down, up, hover, env, view } = setup();
+    controller.setEnabled(false);
+    controller.setEnabled(false);
+    controller.setEnabled(true);
+    hover(50); env.frame();
+    expect(view.cursor).not.toBeNull();
+    down();
+    up();
+    expect(painted(project).length).toBeGreaterThan(0);
+  });
+});
