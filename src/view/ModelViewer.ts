@@ -3,7 +3,8 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { BrushTarget, PaintView, PickHit, ViewMark } from "../tools/types";
+import { fitLongSide } from "../sam/image";
+import type { BrushTarget, PaintView, PickHit, SamCapture, ViewMark } from "../tools/types";
 import { BrushCursor } from "./brushCursor";
 import { DepthPass, MODEL_LAYER, OVERLAY_LAYER } from "./depthPass";
 import { createGrid, setGridTheme } from "./grid";
@@ -12,6 +13,7 @@ import { ColorSurface } from "./colorSurface";
 import { createSurfaceMaterial } from "./material";
 import { buildObjectGeometry, isTriangleHighlighted, setTriangleHighlight, type ObjectGeometry } from "./objectGeometry";
 import { ObjectPicker, TriangleList } from "./picking";
+import { SamPass } from "./samPass";
 import { VisibilityTest } from "./visibility";
 import type { ViewScene } from "./viewScene";
 
@@ -51,6 +53,9 @@ export class ModelViewer implements PaintView {
   private readonly canvas: HTMLCanvasElement;
   private readonly raycaster = new Raycaster();
   private readonly depthPass = new DepthPass();
+  private readonly samPass = new SamPass(createSurfaceMaterial(this.colors.table, { highlight: false }));
+  /** Bumped when the drawn colors change, so a SAM capture key changes with them. */
+  private colorEpoch = 0;
   private readonly brushCursor = new BrushCursor();
   private readonly markers = new Markers();
   private readonly candidates = new TriangleList();
@@ -160,6 +165,7 @@ export class ModelViewer implements PaintView {
    * `ViewScene.objects`).
    */
   updateTriangleStates(objectIndex: number, triIndices: ArrayLike<number>): void {
+    this.colorEpoch++;
     if (this.colors.updateTriangleStates(objectIndex, triIndices)) this.requestRender();
   }
 
@@ -169,6 +175,7 @@ export class ModelViewer implements PaintView {
    * state attribute of every object.
    */
   refreshStates(): void {
+    this.colorEpoch++;
     if (this.colors.refreshStates()) this.requestRender();
   }
 
@@ -177,6 +184,7 @@ export class ModelViewer implements PaintView {
    * attribute is written, whatever changed. Shown while no Print colors are set.
    */
   setPalette(palette: string[]): void {
+    this.colorEpoch++;
     if (this.colors.setPalette(palette)) this.requestRender();
   }
 
@@ -192,6 +200,7 @@ export class ModelViewer implements PaintView {
    * every palette event and every mapping event, or the Print view goes stale.
    */
   setPrintColors(colors: readonly (string | undefined)[] | null): void {
+    this.colorEpoch++;
     this.colors.setPrintColors(colors);
     this.requestRender();
   }
@@ -234,6 +243,7 @@ export class ModelViewer implements PaintView {
     this.brushCursor.dispose();
     this.markers.dispose();
     this.depthPass.dispose();
+    this.samPass.dispose();
     this.material.dispose();
     this.colors.dispose();
     this.renderer.dispose();
@@ -309,6 +319,25 @@ export class ModelViewer implements PaintView {
 
   setMarks(marks: readonly ViewMark[]): void {
     if (this.markers.set(marks)) this.requestRender();
+  }
+
+  captureSam(size: number): SamCapture | null {
+    if (this.objects.length === 0) return null;
+    const visibility = this.visibility(); // updates the camera matrices and the stored pose
+    const { width, height } = fitLongSide(Math.max(1, this.container.clientWidth), Math.max(1, this.container.clientHeight), size);
+    const p = this.camera.position;
+    return {
+      key: `${Array.from(this.depthPose).join(",")}|${this.colorEpoch}|${width}x${height}`,
+      camera: {
+        view: Array.from(this.camera.matrixWorldInverse.elements),
+        proj: Array.from(this.camera.projectionMatrix.elements),
+        eye: [p.x, p.y, p.z],
+        width,
+        height,
+      },
+      visibility,
+      render: () => this.samPass.render(this.renderer, this.scene, this.camera, width, height),
+    };
   }
 
   isRegionHighlighted(objectIndex: number, tri: number): boolean {

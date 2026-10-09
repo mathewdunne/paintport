@@ -1,3 +1,4 @@
+import type { ImageCamera, SamImage, Visibility } from "../sam/types";
 import type { State, Vec3 } from "../doc/paintField";
 
 export type ToolId = "brush" | "shellFill" | "smartFill" | "guidedFill" | "eraser" | "eyedropper";
@@ -33,6 +34,17 @@ export interface PickHit {
 }
 
 /** A guided fill mark to draw: inside (paint here) or outside (keep out). World space. */
+/** What AI Paint needs from the current camera pose (spec Q10). */
+export interface SamCapture {
+  /** Equal for two captures exactly when they would render the same image: camera, viewport, scene, colors. */
+  key: string;
+  camera: ImageCamera;
+  /** Whether a surface point is visible in this pose (the visible-only brush's depth test). */
+  visibility: Visibility;
+  /** Renders the model, without overlays or highlight, at the capture's image size. */
+  render(): SamImage;
+}
+
 export interface ViewMark {
   point: Vec3;
   inside: boolean;
@@ -64,6 +76,8 @@ export interface PaintView {
   isRegionHighlighted(object: number, tri: number): boolean;
   /** Draws the guided fill marks; an empty list clears them. */
   setMarks(marks: readonly ViewMark[]): void;
+  /** The current pose for SAM, with an image whose long side is `size`; null without a model. */
+  captureSam(size: number): SamCapture | null;
   /** Calls the listener when the camera moves, the viewport resizes or the scene changes. Returns the unsubscribe function. */
   onViewChange(listener: () => void): () => void;
   /** CSS cursor over the canvas. */

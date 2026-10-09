@@ -160,6 +160,12 @@ describe("rebuildStates", () => {
 });
 
 describe("patchVertexShader", () => {
+  it("can leave the highlight out (the image SAM sees must not show the pending region)", () => {
+    const patched = patchVertexShader(ShaderLib.lambert.vertexShader, false);
+    expect(patched).not.toContain("highlight * 0.6");
+    expect(patched).toContain("texelFetch( ppColorTable");
+  });
+
   it("declares the state and highlight attributes and mixes the highlight into the vertex color", () => {
     const patched = patchVertexShader(ShaderLib.lambert.vertexShader);
     expect(patched).toContain("attribute float state;");

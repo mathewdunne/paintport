@@ -4,7 +4,7 @@ import { applyTransform, parseTransform } from "../core";
 import { createProject, type Project } from "../doc/project";
 import { sqDistPointTriangle } from "../doc/triangleMath";
 import { PaintController, type ControllerEnv, type GuidedState } from "./PaintController";
-import type { BrushTarget, PaintSettings, PaintView, PickHit, ViewMark } from "./types";
+import type { BrushTarget, PaintSettings, PaintView, PickHit, ViewMark, SamCapture } from "./types";
 
 /** Minimal element: events, pointer capture bookkeeping. */
 class FakeElement extends EventTarget {
@@ -42,6 +42,8 @@ class FakeView implements PaintView {
     this.regionCalls.push(tris ? tris.length : null);
   }
   setMarks(marks: readonly ViewMark[]) { this.marks = marks; }
+  captureFn: (size: number) => SamCapture | null = () => null;
+  captureSam(size: number) { return this.captureFn(size); }
   isRegionHighlighted(object: number, tri: number) { return !!this.region && this.region.object === object && this.region.tris.includes(tri); }
   onViewChange(listener: () => void) { this.viewListeners.add(listener); return () => { this.viewListeners.delete(listener); }; }
   setCursor(cursor: string) { this.cssCursor = cursor; }
