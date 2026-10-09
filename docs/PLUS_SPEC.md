@@ -92,6 +92,20 @@ all unpainted surface of that object. Exports keep the slicer's base-extruder se
   user's Yoshi (500k triangles, 0.08 mm edges in file units, placed at 2.2x) Auto picks
   0.48 mm and fills the pupil cleanly where the edge-by-edge fill leaks into the whole
   model; the bend field costs ~0.35 s once per feature size.
+- **Guided fill** (Q9.4, key `G`): smart fill steered by marks. Click marks the area to
+  paint (inside), Shift+click marks where the fill must not go (outside); the pending
+  region is highlighted and recomputed after each mark, with green "+" / red "-" badges on
+  the marks and a viewport bar (size, Paint/Clear). Enter paints it with the active color
+  as one undo step, Escape clears the marks, Backspace removes the last one; a mark on
+  another object starts over. The two floods race along cheapest paths
+  (`src/doc/guidedFill.ts`): a step costs its length times a weight that is 1 up to half the
+  edge angle and rises quadratically to 50 at it, so they meet on the creases between the
+  marks, or halfway where there is none. The inside flood moves like smart fill, so with only
+  inside marks the region is the union of their smart fills; the outside flood crosses
+  anything of its color. Existing paint stops both. It uses the smart fill settings. On
+  Yoshi, one inside click on the eye dome (228k triangles, leaking into the head) plus one
+  outside click on the head gives the dome alone (10k); ~0.1-0.15 s per mark at 500k
+  triangles.
 - **Eraser**: brush that paints state 0 (base). Also available as a modifier while
   brushing (_default: hold `Shift`_).
 - **Undo/redo**: `Ctrl+Z` / `Ctrl+Shift+Z`, _default 200 steps_.
@@ -135,8 +149,10 @@ Desktop mouse/trackpad only; touch can view but painting isn't tuned for it.
 | Wheel | Zoom |
 | Alt+left drag | Orbit (trackpad) |
 | `Shift` held while brushing | Erase _default_ |
-| `B` `F` `S` `E` `I` | Brush, Shell fill, Smart fill, Eraser, Eyedropper _default_ |
+| `B` `F` `S` `G` `E` `I` | Brush, Shell fill, Smart fill, Guided fill, Eraser, Eyedropper _default_ |
 | `[` `]` | Brush radius |
+| Guided fill: click / Shift+click | Inside / outside mark |
+| Guided fill: `Enter` / `Esc` / `Backspace` | Paint the region / clear the marks / remove the last mark |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 
 Note: Alt+click is also the eyedropper. To resolve the conflict, Alt+**click** without
@@ -385,10 +401,7 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
      (orbit/pan/zoom still work). Explicit edits in the Paint and Objects tabs stay
      available. The Export tab does not switch the view by itself.
 4. **More selection tools**: mirror painting, lasso/box (with paint through),
-   select-by-color, maybe texture bake. Candidate (Q9.1): a seeded segmentation fill
-   (click inside, Shift+click outside; random walk / min-cut over concavity-weighted face
-   edges) for shallow features the feature-size fill can't separate from texture, such
-   as the highlight inside Yoshi's pupil.
+   select-by-color, maybe texture bake. (Guided fill, Q9.4, came in ahead of these.)
 5. **Sub-triangle precision**: decide between option 2 and option 3, starting with a
    time-boxed spike on option 2's split geometry.
 
@@ -432,3 +445,4 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q9.1 | Smart fill on character models | Try the feature-size fill first ("option 1"); seeded segmentation (option 2) and in-browser SAM later if needed; no LLM API |
 | Q9.2 | Smart fill defaults | Edge angle 20° (was 30° edge by edge); feature size 0.2 mm, later Auto (Q9.3) |
 | Q9.3 | Smart fill controls | One "Edge sensitivity" slider; edge angle and feature size under a remembered Advanced section; feature size Auto per mesh; sliders remembered; Reset to defaults |
+| Q9.4 | Click inside/outside fill | Separate "Guided fill" tool: marks build a pending region, Enter paints; cheapest-path race between inside and outside floods (not graph cut: no shrinking toward single clicks; not random walk: no big solve per click) |

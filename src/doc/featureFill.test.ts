@@ -1,60 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { cubeMesh, makeModel, type MeshSpec } from "../../test/support/docFixtures";
-import { makeRng } from "../../test/support/prng";
+import { centroidX, coverage, PLATE_SIZE as SIZE, PLATE_SPACING as SPACING, plateTriAt as triAt, texturedPlate } from "../../test/support/plates";
 import { autoFeatureScale, featureBend } from "./featureField";
 import { createProject, type Project } from "./project";
-
-const SPACING = 0.05;
-const SIZE = 120; // cells per side: a 6 x 6 mm plate
-
-/**
- * A plate like a sculpted surface: every vertex is jittered up or down (texture that bends
- * single edges by up to ~40 degrees), and a soft groove about 0.4 mm wide runs along x = 3.
- * `crater` raises a small square ring of vertices (Chebyshev distance 4 around a vertex).
- */
-function texturedPlate(crater?: [number, number]): MeshSpec {
-  const rng = makeRng(20261009, "texturedPlate");
-  const vertices: number[] = [], tris: number[] = [];
-  for (let j = 0; j <= SIZE; j++) {
-    for (let i = 0; i <= SIZE; i++) {
-      const x = i * SPACING, y = j * SPACING;
-      let z = (rng.next() - 0.5) * 0.024 - 0.12 * Math.exp(-(((x - 3) / 0.15) ** 2));
-      if (crater && Math.max(Math.abs(i - crater[0]), Math.abs(j - crater[1])) === 4) z += 0.3;
-      vertices.push(x, y, z);
-    }
-  }
-  const v = (i: number, j: number) => j * (SIZE + 1) + i;
-  for (let j = 0; j < SIZE; j++) for (let i = 0; i < SIZE; i++) tris.push(v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j), v(i + 1, j + 1), v(i, j + 1));
-  return { vertices, tris };
-}
 
 function projectOf(mesh: MeshSpec): Project {
   const p = createProject(makeModel(mesh));
   p.addColor("#336699");
   return p;
 }
-
-/** Centroid x of each triangle. */
-function centroidX(mesh: MeshSpec): Float64Array {
-  const out = new Float64Array(mesh.tris.length / 3);
-  for (let t = 0; t < out.length; t++) out[t] = (mesh.vertices[mesh.tris[t * 3] * 3] + mesh.vertices[mesh.tris[t * 3 + 1] * 3] + mesh.vertices[mesh.tris[t * 3 + 2] * 3]) / 3;
-  return out;
-}
-
-/** Share of the triangles with centroid x in [from, to) that are in `region`. */
-function coverage(region: Uint32Array, xs: Float64Array, from: number, to: number): number {
-  const inside = new Set(region);
-  let total = 0, hit = 0;
-  xs.forEach((x, t) => {
-    if (x < from || x >= to) return;
-    total++;
-    if (inside.has(t)) hit++;
-  });
-  return hit / total;
-}
-
-/** A triangle near (x, y) on the plate. */
-const triAt = (x: number, y: number) => (Math.floor(y / SPACING) * SIZE + Math.floor(x / SPACING)) * 2;
 
 describe("smart fill with a feature size", () => {
   const mesh = texturedPlate();
@@ -84,7 +38,7 @@ describe("smart fill with a feature size", () => {
   });
 
   it("fills a hole smaller than the feature size that the region surrounds", () => {
-    const p = projectOf(texturedPlate([20, 60]));
+    const p = projectOf(texturedPlate({ crater: [20, 60] }));
     const region = new Set(p.smartFillRegion(0, triAt(0.5, 0.5), 20, 0.3));
     // The crater floor: the 6 x 6 cells inside the ring.
     for (let j = 57; j < 63; j++) for (let i = 17; i < 23; i++) for (const t of [0, 1]) expect(region.has((j * SIZE + i) * 2 + t)).toBe(true);

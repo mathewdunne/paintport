@@ -1,6 +1,6 @@
 import type { ToolId } from "./types";
 
-export const TOOL_KEYS: Record<string, ToolId> = { B: "brush", F: "shellFill", S: "smartFill", E: "eraser", I: "eyedropper" };
+export const TOOL_KEYS: Record<string, ToolId> = { B: "brush", F: "shellFill", S: "smartFill", G: "guidedFill", E: "eraser", I: "eyedropper" };
 
 export type KeyAction =
   | { type: "tool"; tool: ToolId }

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
-import { PaintController } from "@/tools/PaintController";
+import { PaintController, type GuidedState } from "@/tools/PaintController";
 import type { PaintSettings } from "@/tools/types";
 import { ModelViewer } from "@/view/ModelViewer";
 import { projectToScene } from "@/view/projectScene";
@@ -41,6 +42,7 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
   latestSettings.current = settings;
   const latestToolsEnabled = useRef(toolsEnabled);
   latestToolsEnabled.current = toolsEnabled;
+  const [guided, setGuided] = useState<GuidedState | null>(null);
 
   // The eyedropper's color chip follows the cursor. Updated through the DOM: it moves with
   // every pointer move, and React need not render for that.
@@ -91,7 +93,7 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
     }
     if (!project || !scene) return;
     const unsync = syncViewerToProject(project, scene, v);
-    const ctl = new PaintController(project, v, { onPickState: (s) => picked.current(s), onSwatch: showSwatch }, latestSettings.current);
+    const ctl = new PaintController(project, v, { onPickState: (s) => picked.current(s), onSwatch: showSwatch, onGuided: setGuided }, latestSettings.current);
     ctl.setEnabled(latestToolsEnabled.current);
     controller.current = ctl;
     return () => {
@@ -99,6 +101,7 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
       unsync();
       controller.current = null;
       showSwatch(null);
+      setGuided(null);
     };
   }, [project, showSwatch]);
 
@@ -137,6 +140,30 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
         <span ref={swatch} className="size-4 rounded-sm border" />
         <span ref={hex} className="font-mono tabular-nums" />
       </div>
+      {project && toolsEnabled && settings.tool === "guidedFill" && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-16 flex justify-center px-3">
+          <div role="status" className="pointer-events-auto flex flex-col items-center gap-1 rounded-lg border bg-background/95 px-3 py-2 text-xs shadow-sm">
+            {guided ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <span className="tabular-nums">{strings.viewport.guidedRegion(guided.tris, guided.inside, guided.outside)}</span>
+                  <Button size="xs" onClick={() => controller.current?.commitGuided()} disabled={guided.tris === 0}>
+                    {strings.viewport.guidedPaint}
+                    <kbd className="font-sans opacity-70">{strings.viewport.guidedPaintKey}</kbd>
+                  </Button>
+                  <Button size="xs" variant="outline" onClick={() => controller.current?.clearGuided()}>
+                    {strings.viewport.guidedClear}
+                    <kbd className="font-sans opacity-70">{strings.viewport.guidedClearKey}</kbd>
+                  </Button>
+                </div>
+                <span className="text-muted-foreground">{strings.viewport.guidedKeys}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">{strings.viewport.guidedStart}</span>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

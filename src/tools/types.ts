@@ -1,6 +1,6 @@
 import type { State, Vec3 } from "../doc/paintField";
 
-export type ToolId = "brush" | "shellFill" | "smartFill" | "eraser" | "eyedropper";
+export type ToolId = "brush" | "shellFill" | "smartFill" | "guidedFill" | "eraser" | "eyedropper";
 
 /** Everything the paint tools need from the UI. */
 export interface PaintSettings {
@@ -32,6 +32,12 @@ export interface PickHit {
   distance: number;
 }
 
+/** A guided fill mark to draw: inside (paint here) or outside (keep out). World space. */
+export interface ViewMark {
+  point: Vec3;
+  inside: boolean;
+}
+
 /** The triangles of one object a brush dab may paint. */
 export interface BrushTarget {
   object: number;
@@ -56,6 +62,8 @@ export interface PaintView {
   /** Highlights a region of triangles (a fill preview); null clears it. */
   setRegionHighlight(object: number, tris: Uint32Array | null): void;
   isRegionHighlighted(object: number, tri: number): boolean;
+  /** Draws the guided fill marks; an empty list clears them. */
+  setMarks(marks: readonly ViewMark[]): void;
   /** Calls the listener when the camera moves, the viewport resizes or the scene changes. Returns the unsubscribe function. */
   onViewChange(listener: () => void): () => void;
   /** CSS cursor over the canvas. */

@@ -3,6 +3,7 @@ import type { Project } from "../doc/project";
 import { objectSpaceSphere } from "../doc/transform";
 import { interpolateDabs, type Point } from "./dabs";
 import { ClickDetector } from "./gesture";
+import type { Vec3 } from "../doc/paintField";
 import type { PaintSettings, PaintView, PickHit, ToolId } from "./types";
 
 export interface PaintCallbacks {
@@ -10,6 +11,22 @@ export interface PaintCallbacks {
   onPickState(state: number): void;
   /** A color chip for the eyedropper under the cursor (client coordinates), or null to hide it. */
   onSwatch(swatch: { x: number; y: number; color: string } | null): void;
+  /** The guided fill's pending region changed: its size and marks, or null when there are no marks. */
+  onGuided?(state: GuidedState | null): void;
+}
+
+/** A guided fill in progress: the marks placed so far and the size of the region they give. */
+export interface GuidedState {
+  inside: number;
+  outside: number;
+  tris: number;
+}
+
+interface GuidedMark {
+  tri: number;
+  /** World space, for drawing. */
+  point: Vec3;
+  inside: boolean;
 }
 
 /** Scheduling and window hooks, replaceable in tests. */
@@ -65,6 +82,8 @@ interface Stroke {
  * Left button: the active tool. Alt+left is the eyedropper when it is a click and an
  * orbit (handled by the viewer) when it is a drag. Right and middle buttons orbit and pan
  * (also the viewer's); here they only hide the hover feedback. Shift while brushing erases.
+ * With guided fill a click adds an inside mark and Shift+click an outside one; the region they
+ * give stays highlighted until Enter paints it (`commitGuided`) or Escape drops it.
  */
 export class PaintController {
   private settings: PaintSettings;
@@ -83,6 +102,9 @@ export class PaintController {
   private fillReady = true;
   private fillTimer = 0;
   private warmTimer = 0;
+  /** The guided fill's marks (all on one object) and the region they give; null when there are none. */
+  private guided: { object: number; marks: GuidedMark[]; region: Uint32Array } | null = null;
+  private guidedDirty = false;
   /** Smoothed cost of one dab, to size the per-frame dab budget. */
   private dabMs = 0.1;
   private disposed = false;
@@ -124,6 +146,7 @@ export class PaintController {
       this.project.subscribe((e) => {
         if (e.kind === "history") return;
         this.epoch++;
+        if (this.guided) this.guidedDirty = true;
         this.hoverDirty = true;
         this.schedule();
       }),
@@ -134,10 +157,12 @@ export class PaintController {
     const previous = this.settings;
     this.settings = next;
     if (previous.tool !== next.tool) {
+      this.clearGuided();
       this.finishStroke();
       this.clearHover();
       this.warmFillData();
     }
+    else if (this.guided && (previous.smartAngle !== next.smartAngle || previous.smartScale !== next.smartScale)) this.guidedDirty = true;
     this.hoverDirty = true;
     this.schedule();
   }
@@ -152,6 +177,7 @@ export class PaintController {
     this.enabled = enabled;
     this.altClick.cancel();
     if (!enabled) {
+      this.clearGuided();
       this.finishStroke();
       this.gesture = "none";
       this.clearHover();
@@ -165,6 +191,7 @@ export class PaintController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearGuided();
     this.finishStroke();
     this.clearHover();
     this.view.setCursor("");
@@ -195,6 +222,9 @@ export class PaintController {
         case "shellFill":
         case "smartFill":
           this.fillAt(e.clientX, e.clientY);
+          break;
+        case "guidedFill":
+          this.markAt(e.clientX, e.clientY, !e.shiftKey);
           break;
         case "eyedropper":
           this.pickColorAt(e.clientX, e.clientY);
@@ -267,6 +297,13 @@ export class PaintController {
 
   /** Shift and Alt change what the cursor means (erase, eyedropper): refresh the hover. */
   private readonly onKey = (e: KeyboardEvent): void => {
+    if (e.type === "keydown" && this.guided && this.enabled && this.settings.tool === "guidedFill" && !e.ctrlKey && !e.metaKey && !e.altKey && !onControl(e.target)) {
+      const action = e.key === "Enter" ? this.commitGuided : e.key === "Escape" ? this.clearGuided : e.key === "Backspace" || e.key === "Delete" ? this.undoMark : null;
+      if (action) {
+        e.preventDefault();
+        action.call(this);
+      }
+    }
     if (this.pointer) {
       this.pointer.shift = e.shiftKey;
       this.pointer.alt = e.altKey;
@@ -388,14 +425,69 @@ export class PaintController {
   private fillRegion(hit: PickHit): Uint32Array {
     return this.settings.tool === "shellFill"
       ? this.project.shellFillRegion(hit.object, hit.tri)
-      : this.project.smartFillRegion(hit.object, hit.tri, this.settings.smartAngle, this.objectScale(hit));
+      : this.project.smartFillRegion(hit.object, hit.tri, this.settings.smartAngle, this.objectScale(hit.object, hit.point));
   }
 
   /** The smart fill feature size in the object's own units (0 = off): the mesh's own when automatic. */
-  private objectScale(hit: PickHit): number {
+  private objectScale(object: number, point: Vec3): number {
     const scale = this.settings.smartScale;
-    if (scale === null) return this.project.autoFeatureScale(hit.object);
-    return scale > 0 ? objectSpaceSphere(this.project.objects[hit.object].transform, hit.point, scale).radius : 0;
+    if (scale === null) return this.project.autoFeatureScale(object);
+    return scale > 0 ? objectSpaceSphere(this.project.objects[object].transform, point, scale).radius : 0;
+  }
+
+  // --- guided fill --------------------------------------------------------------------
+
+  /** Adds an inside or outside mark at a screen position. A mark on another object starts over. */
+  private markAt(x: number, y: number, inside: boolean): void {
+    const hit = this.view.pick(x, y);
+    if (!hit) return;
+    this.clearRegion(); // the hover preview gives way to the guided region
+    const marks = this.guided?.object === hit.object ? this.guided.marks.filter((m) => m.tri !== hit.tri) : [];
+    marks.push({ tri: hit.tri, point: hit.point, inside });
+    this.guided = { object: hit.object, marks, region: new Uint32Array(0) };
+    this.updateGuided();
+  }
+
+  /** Removes the last mark (Backspace). */
+  undoMark(): void {
+    const g = this.guided;
+    if (!g) return;
+    g.marks.pop();
+    if (g.marks.length === 0) this.clearGuided();
+    else this.updateGuided();
+  }
+
+  /** Paints the guided region with the active color as one undo step and clears the marks (Enter). */
+  commitGuided(): void {
+    const g = this.guided, state = this.paintState();
+    if (!g) return;
+    this.clearGuided();
+    if (state !== null && g.region.length > 0) this.project.paintTriangles(g.object, g.region, state);
+  }
+
+  /** Drops the marks and their region (Escape). */
+  clearGuided(): void {
+    this.guidedDirty = false;
+    if (!this.guided) return;
+    const object = this.guided.object;
+    this.guided = null;
+    this.view.setRegionHighlight(object, null);
+    this.view.setMarks([]);
+    this.callbacks.onGuided?.(null);
+    this.hoverDirty = true;
+    this.schedule();
+  }
+
+  /** Recomputes the guided region from the marks and shows it with the marks. */
+  private updateGuided(): void {
+    const g = this.guided;
+    if (!g) return;
+    const inside = g.marks.filter((m) => m.inside), outside = g.marks.filter((m) => !m.inside);
+    const scale = this.objectScale(g.object, (inside[0] ?? g.marks[0]).point);
+    g.region = this.project.guidedFillRegion(g.object, inside.map((m) => m.tri), outside.map((m) => m.tri), this.settings.smartAngle, scale);
+    this.view.setRegionHighlight(g.object, g.region);
+    this.view.setMarks(g.marks.map((m) => ({ point: m.point, inside: m.inside })));
+    this.callbacks.onGuided?.({ inside: inside.length, outside: outside.length, tris: g.region.length });
   }
 
   private pickColorAt(x: number, y: number): void {
@@ -418,7 +510,11 @@ export class PaintController {
             this.strokeDirty = false;
             this.processStroke();
           }
-        } else if (this.hoverDirty && this.gesture === "none") {
+        } else if (this.guidedDirty) {
+          this.guidedDirty = false;
+          this.updateGuided();
+        }
+        if (!this.stroke && this.hoverDirty && this.gesture === "none") {
           this.hoverDirty = false;
           this.updateHover();
         }
@@ -442,6 +538,11 @@ export class PaintController {
     }
     const tool = p.alt ? "eyedropper" : this.settings.tool;
     this.view.setCursor(tool === "brush" || tool === "eraser" ? "none" : "crosshair");
+    if (tool === "guidedFill" && this.guided) { // the marks' region stays highlighted; no single-click preview
+      this.view.hideBrushCursor();
+      this.callbacks.onSwatch(null);
+      return;
+    }
     if (tool === "brush" || tool === "eraser") {
       this.clearRegion();
       this.callbacks.onSwatch(null);
@@ -465,7 +566,7 @@ export class PaintController {
    * last computation was slow (a huge region), recomputation waits until the pointer rests.
    */
   private previewFill(hit: PickHit): void {
-    const key = `${this.settings.tool}|${hit.object}|${this.settings.tool === "smartFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}` : ""}|${this.epoch}`;
+    const key = `${this.settings.tool}|${hit.object}|${this.settings.tool !== "shellFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}` : ""}|${this.epoch}`;
     if (key === this.fillKey && this.view.isRegionHighlighted(hit.object, hit.tri)) return;
     if (!this.fillReady && this.lastFillMs >= SLOW_FILL_MS) {
       this.env.clearTimer(this.fillTimer);
@@ -490,7 +591,7 @@ export class PaintController {
    * triangles) and a fill needs it: do it when a fill tool is chosen, not at the first hover.
    */
   private warmFillData(): void {
-    if (this.settings.tool !== "shellFill" && this.settings.tool !== "smartFill") return;
+    if (this.settings.tool !== "shellFill" && this.settings.tool !== "smartFill" && this.settings.tool !== "guidedFill") return;
     this.env.clearTimer(this.warmTimer);
     this.warmTimer = this.env.setTimer(() => {
       if (!this.disposed) this.project.objects.forEach((_, i) => this.project.topology(i));
@@ -522,4 +623,10 @@ export class PaintController {
     const s = this.settings.activeState;
     return Number.isInteger(s) && s >= 1 && s < this.project.palette.length ? s : null;
   }
+}
+
+/** True for key events aimed at a control (a field, button or slider), which keeps its own keys. */
+function onControl(target: EventTarget | null): boolean {
+  const tag = (target as { tagName?: string } | null)?.tagName;
+  return !!tag && tag !== "BODY" && tag !== "HTML" && tag !== "CANVAS";
 }

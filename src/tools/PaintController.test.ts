@@ -3,8 +3,8 @@ import { cubeMesh, joinMeshes, makeModel } from "../../test/support/docFixtures"
 import { applyTransform, parseTransform } from "../core";
 import { createProject, type Project } from "../doc/project";
 import { sqDistPointTriangle } from "../doc/triangleMath";
-import { PaintController, type ControllerEnv } from "./PaintController";
-import type { BrushTarget, PaintSettings, PaintView, PickHit } from "./types";
+import { PaintController, type ControllerEnv, type GuidedState } from "./PaintController";
+import type { BrushTarget, PaintSettings, PaintView, PickHit, ViewMark } from "./types";
 
 /** Minimal element: events, pointer capture bookkeeping. */
 class FakeElement extends EventTarget {
@@ -23,6 +23,7 @@ class FakeView implements PaintView {
   cursorShown = 0;
   regionCalls: (number | null)[] = [];
   region: { object: number; tris: Uint32Array } | null = null;
+  marks: readonly ViewMark[] = [];
   cssCursor = "";
   private viewListeners = new Set<() => void>();
 
@@ -40,6 +41,7 @@ class FakeView implements PaintView {
     this.region = tris ? { object: _object, tris } : null;
     this.regionCalls.push(tris ? tris.length : null);
   }
+  setMarks(marks: readonly ViewMark[]) { this.marks = marks; }
   isRegionHighlighted(object: number, tri: number) { return !!this.region && this.region.object === object && this.region.tris.includes(tri); }
   onViewChange(listener: () => void) { this.viewListeners.add(listener); return () => { this.viewListeners.delete(listener); }; }
   setCursor(cursor: string) { this.cssCursor = cursor; }
@@ -95,7 +97,10 @@ function setup(settings: Partial<PaintSettings> = {}, mesh = cubeMesh(), transfo
   const env = new FakeEnv();
   const picked: number[] = [];
   const swatches: ({ x: number; y: number; color: string } | null)[] = [];
-  const controller = new PaintController(project, view, { onPickState: (s) => picked.push(s), onSwatch: (s) => swatches.push(s) }, { ...base, ...settings }, env);
+  const guided: (GuidedState | null)[] = [];
+  const controller = new PaintController(
+    project, view, { onPickState: (s) => picked.push(s), onSwatch: (s) => swatches.push(s), onGuided: (g) => guided.push(g) }, { ...base, ...settings }, env,
+  );
   const el = view.element as unknown as FakeElement;
   const fire = (target: EventTarget, type: string, init: Record<string, unknown> = {}) =>
     target.dispatchEvent(Object.assign(new Event(type), { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, clientX: 50, clientY: 50, shiftKey: false, altKey: false }, init));
@@ -103,7 +108,8 @@ function setup(settings: Partial<PaintSettings> = {}, mesh = cubeMesh(), transfo
   const move = (x: number, init: Record<string, unknown> = {}) => fire(el, "pointermove", { clientX: x, buttons: 1, ...init });
   const hover = (x: number, init: Record<string, unknown> = {}) => fire(el, "pointermove", { clientX: x, buttons: 0, ...init });
   const up = (init: Record<string, unknown> = {}) => fire(el, "pointerup", init);
-  return { project, view, env, controller, el, picked, swatches, down, move, hover, up, fire };
+  const key = (k: string) => fire(env.win, "keydown", { key: k });
+  return { project, view, env, controller, el, picked, swatches, guided, down, move, hover, up, fire, key };
 }
 
 const painted = (p: Project) => Array.from(p.fields[0].displayStates()).map((s, t) => (s ? t : -1)).filter((t) => t >= 0);
@@ -734,5 +740,82 @@ describe("disabled (Print view, view-only)", () => {
     down();
     up();
     expect(painted(project).length).toBeGreaterThan(0);
+  });
+});
+
+describe("guided fill", () => {
+  const at = (view: FakeView, tri: number) => { view.pickFn = (x) => ({ object: 0, tri, point: [x / 100, 0, 0.5], normal: [0, -1, 0], distance: 10 }); };
+  const highlighted = (view: FakeView) => (view.region ? Array.from(view.region.tris).sort((a, b) => a - b) : null);
+
+  it("a click marks inside and highlights the region without painting; Enter paints it as one undo step", () => {
+    const { project, view, guided, down, up, key } = setup({ tool: "guidedFill" });
+    down(); up();
+    expect(highlighted(view)).toEqual([4, 5]); // one face of the cube, as smart fill at 30 degrees
+    expect(view.marks).toEqual([{ point: [0.5, 0, 0.5], inside: true }]);
+    expect(guided.at(-1)).toEqual({ inside: 1, outside: 0, tris: 2 });
+    expect(painted(project)).toEqual([]);
+    key("Enter");
+    expect(painted(project)).toEqual([4, 5]);
+    expect(project.undoCount).toBe(1);
+    expect(view.marks).toEqual([]);
+    expect(view.region).toBeNull();
+    expect(guided.at(-1)).toBeNull();
+  });
+
+  it("Shift+click marks outside and takes away what that side reaches first", () => {
+    const { view, guided, down, up } = setup({ tool: "guidedFill", smartAngle: 100 });
+    down(); up();
+    expect(highlighted(view)).toHaveLength(12);
+    at(view, 0);
+    down({ shiftKey: true }); up({ shiftKey: true });
+    const region = highlighted(view)!;
+    expect(region).toContain(4);
+    expect(region).not.toContain(0);
+    expect(region.length).toBeLessThan(12);
+    expect(view.marks.map((m) => m.inside)).toEqual([true, false]);
+    expect(guided.at(-1)).toMatchObject({ inside: 1, outside: 1 });
+  });
+
+  it("Backspace removes the last mark and Escape drops them all; a new mark on a marked triangle replaces it", () => {
+    const { project, view, down, up, key } = setup({ tool: "guidedFill", smartAngle: 100 });
+    down(); up();
+    at(view, 0);
+    down({ shiftKey: true }); up({ shiftKey: true });
+    key("Backspace");
+    expect(highlighted(view)).toHaveLength(12);
+    down(); up(); // inside on triangle 0
+    down({ shiftKey: true }); up({ shiftKey: true }); // and now outside on the same triangle
+    expect(view.marks.map((m) => m.inside)).toEqual([true, false]);
+    key("Escape");
+    expect(view.marks).toEqual([]);
+    expect(view.region).toBeNull();
+    key("Enter");
+    expect(painted(project)).toEqual([]);
+  });
+
+  it("follows document changes and setting changes, and drops the marks on a tool change", () => {
+    const { project, view, env, controller, down, up } = setup({ tool: "guidedFill", smartAngle: 100 });
+    down(); up();
+    project.paintTriangles(0, [0, 1], 3);
+    env.frame();
+    expect(highlighted(view)).toHaveLength(10);
+    controller.setSettings({ ...base, tool: "guidedFill", smartAngle: 30 });
+    env.frame();
+    expect(highlighted(view)).toEqual([4, 5]);
+    controller.setSettings({ ...base, tool: "brush" });
+    expect(view.marks).toEqual([]);
+    expect(view.region).toBeNull();
+  });
+
+  it("hover previews a single click until the first mark, then keeps the marks' region", () => {
+    const { view, env, hover, down, up } = setup({ tool: "guidedFill", smartAngle: 100 });
+    hover(50); env.frame();
+    expect(highlighted(view)).toHaveLength(12);
+    down(); up();
+    at(view, 0);
+    view.pickFn = (x) => ({ object: 0, tri: 0, point: [x / 100, 0, 0.5], normal: [0, -1, 0], distance: 10 });
+    hover(60); env.frame();
+    expect(highlighted(view)).toHaveLength(12); // the marks' region, not a new preview
+    expect(view.marks).toHaveLength(1);
   });
 });

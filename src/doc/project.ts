@@ -6,6 +6,7 @@ import { DocError } from "./errors";
 import type { ProjectEvent, ProjectListener } from "./events";
 import { autoFeatureScale } from "./featureField";
 import { featureFill, shellFill, smartFill } from "./fill";
+import { guidedFill } from "./guidedFill";
 import { hashGeometry, newProjectId } from "./geometryHash";
 import { MeshTopology } from "./meshTopology";
 import type { BrushOpts, EditRecord, PaintField, PaintFieldView, State, Vec3 } from "./paintField";
@@ -466,14 +467,25 @@ export class Project {
   }
 
   smartFillRegion(objectIndex: number, seedTri: number, angleDeg: number, scale = 0): Uint32Array {
+    const topology = this.topology(objectIndex), display = this.displayView(objectIndex);
+    return scale > 0 ? featureFill(topology, seedTri, angleDeg, scale, display) : smartFill(topology, seedTri, angleDeg, display);
+  }
+
+  /**
+   * Triangles a guided fill would paint: grown from the `inside` triangles like smart fill (with
+   * the same angle and feature size), minus what the `outside` triangles reach first. Does not paint.
+   */
+  guidedFillRegion(objectIndex: number, inside: readonly number[], outside: readonly number[], angleDeg: number, scale = 0): Uint32Array {
+    return guidedFill(this.topology(objectIndex), inside, outside, angleDeg, scale, this.displayView(objectIndex));
+  }
+
+  private displayView(objectIndex: number) {
     const object = this.objects[objectIndex];
-    const display = {
+    return {
       painted: this.fields[objectIndex].displayStates(),
       triPart: object.triPart,
       baseOfPart: object.parts.map((p) => this._base.get(p.id) ?? 0),
     };
-    const topology = this.topology(objectIndex);
-    return scale > 0 ? featureFill(topology, seedTri, angleDeg, scale, display) : smartFill(topology, seedTri, angleDeg, display);
   }
 
   // --- history -------------------------------------------------------------------

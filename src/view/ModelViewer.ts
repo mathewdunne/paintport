@@ -3,10 +3,11 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { BrushTarget, PaintView, PickHit } from "../tools/types";
+import type { BrushTarget, PaintView, PickHit, ViewMark } from "../tools/types";
 import { BrushCursor } from "./brushCursor";
 import { DepthPass, MODEL_LAYER, OVERLAY_LAYER } from "./depthPass";
 import { createGrid, setGridTheme } from "./grid";
+import { Markers } from "./markers";
 import { ColorSurface } from "./colorSurface";
 import { createSurfaceMaterial } from "./material";
 import { buildObjectGeometry, isTriangleHighlighted, setTriangleHighlight, type ObjectGeometry } from "./objectGeometry";
@@ -37,7 +38,7 @@ interface ViewObjectEntry {
  *
  * It also answers the paint tools' questions (`PaintView`): what surface is under the
  * cursor, which triangles a brush sphere may paint (with optional visibility), and it
- * draws their feedback (brush ring, fill preview).
+ * draws their feedback (brush ring, fill preview, guided fill marks).
  */
 export class ModelViewer implements PaintView {
   private readonly renderer: WebGLRenderer;
@@ -51,6 +52,7 @@ export class ModelViewer implements PaintView {
   private readonly raycaster = new Raycaster();
   private readonly depthPass = new DepthPass();
   private readonly brushCursor = new BrushCursor();
+  private readonly markers = new Markers();
   private readonly candidates = new TriangleList();
   private readonly viewListeners = new Set<() => void>();
   private objects: ViewObjectEntry[] = [];
@@ -91,7 +93,7 @@ export class ModelViewer implements PaintView {
     headlight.position.set(-0.35, 0.6, 1);
     this.camera.add(headlight, headlight.target);
 
-    this.scene.add(this.brushCursor.mesh);
+    this.scene.add(this.brushCursor.mesh, this.markers.points);
 
     // Alt+left must orbit, plain left must not. Decided per press, before OrbitControls
     // (listening on the canvas) sees the event, so there is no key state to get stuck.
@@ -230,6 +232,7 @@ export class ModelViewer implements PaintView {
     this.controls.dispose();
     this.clearObjects();
     this.brushCursor.dispose();
+    this.markers.dispose();
     this.depthPass.dispose();
     this.material.dispose();
     this.colors.dispose();
@@ -302,6 +305,10 @@ export class ModelViewer implements PaintView {
       this.highlighted = { entry, tris };
     }
     if (previous || this.highlighted) this.requestRender();
+  }
+
+  setMarks(marks: readonly ViewMark[]): void {
+    if (this.markers.set(marks)) this.requestRender();
   }
 
   isRegionHighlighted(objectIndex: number, tri: number): boolean {
@@ -416,6 +423,7 @@ export class ModelViewer implements PaintView {
   private resize(): void {
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO));
+    this.markers.setPixelRatio(this.renderer.getPixelRatio());
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();

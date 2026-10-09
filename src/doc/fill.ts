@@ -110,14 +110,72 @@ export function smartFill(topology: MeshTopology, seed: number, angleDeg: number
 }
 
 interface HoleScratch {
-  /** Epoch per triangle known to lie outside any small hole (its component was too big). */
+  /** Call number per triangle known to lie outside any small hole (its component was too big). */
   outside: Uint32Array;
+  call: number;
   /** Search id per triangle visited by the current hole search. */
   seen: Uint32Array;
   search: number;
   list: Uint32Array;
 }
 const holeScratchOf = new WeakMap<MeshTopology, HoleScratch>();
+
+/**
+ * Adds to a region the holes it surrounds: connected groups of triangles for which `candidate`
+ * holds, smaller than `maxArea` in total, that touch the region and nothing else a search can
+ * leave through (every other triangle is a wall). `region` holds the region's triangles in its
+ * first `size` entries; `add` is called for each triangle of each hole. A search from the
+ * region's edge gives up as soon as it is too big or reaches a triangle an earlier search found
+ * to be open.
+ */
+export function fillSmallHoles(
+  topology: MeshTopology, region: ArrayLike<number>, size: number, maxArea: number,
+  candidate: (t: number) => boolean, add: (t: number) => void,
+): void {
+  const n = topology.triCount;
+  const normals = topology.faceNormals();
+  const { duplicateOf } = topology;
+  let hs = holeScratchOf.get(topology);
+  if (!hs) holeScratchOf.set(topology, (hs = { outside: new Uint32Array(n), call: 0, seen: new Uint32Array(n), search: 0, list: new Uint32Array(n) }));
+  if (hs.search > 0xfffffff0) { hs.seen.fill(0); hs.search = 0; }
+  if (++hs.call === 0xffffffff) { hs.outside.fill(0); hs.call = 1; }
+  const { outside, seen, list, call } = hs;
+  const { vertices, tris } = topology.mesh;
+  const srcOf = (t: number) => (duplicateOf && duplicateOf[t] >= 0 ? duplicateOf[t] : t);
+  const areaOf = (t: number): number => {
+    const a = tris[t * 3] * 3, b = tris[t * 3 + 1] * 3, c = tris[t * 3 + 2] * 3;
+    const ux = vertices[b] - vertices[a], uy = vertices[b + 1] - vertices[a + 1], uz = vertices[b + 2] - vertices[a + 2];
+    const vx = vertices[c] - vertices[a], vy = vertices[c + 1] - vertices[a + 1], vz = vertices[c + 2] - vertices[a + 2];
+    return Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  };
+  const buf = new Int32Array(3), inner = new Int32Array(3);
+  for (let i = 0; i < size; i++) {
+    const count = edgeNeighbors(topology, normals, srcOf(region[i]), buf);
+    for (let k = 0; k < count; k++) {
+      const start = neighborTri(buf[k]);
+      if (outside[start] === call || !candidate(start)) continue;
+      const id = ++hs.search;
+      let found = 0, area = 0, closed = true;
+      seen[start] = id;
+      list[found++] = start;
+      for (let head = 0; head < found && closed; head++) {
+        const t = list[head];
+        area += areaOf(t);
+        if (area > maxArea) { closed = false; break; }
+        const c = edgeNeighbors(topology, normals, srcOf(t), inner);
+        for (let j = 0; j < c; j++) {
+          const u = neighborTri(inner[j]);
+          if (seen[u] === id || !candidate(u)) continue;
+          if (outside[u] === call) { closed = false; break; }
+          seen[u] = id;
+          list[found++] = u;
+        }
+      }
+      if (closed) for (let j = 0; j < found; j++) add(list[j]);
+      else for (let j = 0; j < found; j++) outside[list[j]] = call;
+    }
+  }
+}
 
 /**
  * Smart fill at a feature size (`scale` > 0, object units): like `smartFill`, but the bend is
@@ -155,7 +213,7 @@ export function featureFill(topology: MeshTopology, seed: number, angleDeg: numb
   const stateOf = (t: number): number => (painted[t] > 0 ? painted[t] : baseOfPart[triPart[t]]);
   const seedState = stateOf(seed);
   const srcOf = (t: number) => (duplicateOf && duplicateOf[t] >= 0 ? duplicateOf[t] : t); // duplicates have no edges of their own
-  const buf = new Int32Array(3), inner = new Int32Array(3);
+  const buf = new Int32Array(3);
   let tail = 0;
   const visit = (u: number): void => {
     stamp[u] = epoch;
@@ -181,51 +239,9 @@ export function featureFill(topology: MeshTopology, seed: number, angleDeg: numb
     }
   }
 
-  // 3: small holes. A search from the region's edge gives up as soon as it is too big or
-  // reaches a triangle an earlier search found to be outside.
-  const maxArea = Math.PI * scale * scale;
-  let hs = holeScratchOf.get(topology);
-  if (!hs) holeScratchOf.set(topology, (hs = { outside: new Uint32Array(n), seen: new Uint32Array(n), search: 0, list: new Uint32Array(n) }));
-  if (hs.search > 0xfffffff0) { hs.seen.fill(0); hs.search = 0; }
-  if (epoch === 1) hs.outside.fill(0); // the region epoch wrapped
-  const { outside, seen, list } = hs;
-  const { vertices, tris } = topology.mesh;
-  const areaOf = (t: number): number => {
-    const a = tris[t * 3] * 3, b = tris[t * 3 + 1] * 3, c = tris[t * 3 + 2] * 3;
-    const ux = vertices[b] - vertices[a], uy = vertices[b + 1] - vertices[a + 1], uz = vertices[b + 2] - vertices[a + 2];
-    const vx = vertices[c] - vertices[a], vy = vertices[c + 1] - vertices[a + 1], vz = vertices[c + 2] - vertices[a + 2];
-    return Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
-  };
-  const regionSize = tail;
-  for (let i = 0; i < regionSize; i++) {
-    const count = edgeNeighbors(topology, normals, srcOf(queue[i]), buf);
-    for (let k = 0; k < count; k++) {
-      const start = neighborTri(buf[k]);
-      if (stamp[start] === epoch || outside[start] === epoch || stateOf(start) !== seedState) continue;
-      const id = ++hs.search;
-      let size = 0, area = 0, closed = true;
-      seen[start] = id;
-      list[size++] = start;
-      for (let head = 0; head < size && closed; head++) {
-        const t = list[head];
-        area += areaOf(t);
-        if (area > maxArea) { closed = false; break; }
-        const c = edgeNeighbors(topology, normals, srcOf(t), inner);
-        for (let j = 0; j < c; j++) {
-          const u = neighborTri(inner[j]);
-          if (stamp[u] === epoch || seen[u] === id || stateOf(u) !== seedState) continue;
-          if (outside[u] === epoch) { closed = false; break; }
-          seen[u] = id;
-          list[size++] = u;
-        }
-      }
-      if (closed) {
-        for (let j = 0; j < size; j++) visit(list[j]);
-        for (let j = 0; j < size; j++) visitTwins(list[j]);
-      } else {
-        for (let j = 0; j < size; j++) outside[list[j]] = epoch;
-      }
-    }
-  }
+  // 3: small holes.
+  const filled = tail;
+  fillSmallHoles(topology, queue, filled, Math.PI * scale * scale, (t) => stamp[t] !== epoch && stateOf(t) === seedState, visit);
+  for (let i = filled, end = tail; i < end; i++) visitTwins(queue[i]);
   return queue.slice(0, tail);
 }
