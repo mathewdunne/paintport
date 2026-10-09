@@ -13,6 +13,8 @@ export interface PaintSettings {
   paintThrough: boolean;
   /** Smart fill stops at edges sharper than this many degrees. */
   smartAngle: number;
+  /** Smart fill measures the bend over this size (world millimetres) so finer surface texture is ignored; 0 compares neighboring faces. */
+  smartScale: number;
 }
 
 /** A surface point under the cursor. `object` and `tri` are document indices. */

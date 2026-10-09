@@ -81,7 +81,7 @@ function worldCandidates(project: Project): FakeView["candidateFn"] {
   };
 }
 
-const base: PaintSettings = { tool: "brush", activeState: 2, radius: 0.3, paintThrough: false, smartAngle: 30 };
+const base: PaintSettings = { tool: "brush", activeState: 2, radius: 0.3, paintThrough: false, smartAngle: 30, smartScale: 0 };
 
 function setup(settings: Partial<PaintSettings> = {}, mesh = cubeMesh(), transform: string | null = null) {
   const model = makeModel(mesh, { filaments: [{ color: "#FF0000" }] });
@@ -521,6 +521,22 @@ describe("fills", () => {
     const { project, down, up } = setup({ tool: "smartFill", smartAngle: 90 });
     down(); up();
     expect(painted(project)).toHaveLength(12);
+  });
+
+  it("smart fill measures the feature size in the object's own units, and the preview follows it", () => {
+    const { project, view, env, hover, down, up, controller } = setup({ tool: "smartFill", smartScale: 0.4 }, cubeMesh(), "2 0 0 0 2 0 0 0 2 0 0 0");
+    const scales: number[] = [];
+    const region = project.smartFillRegion.bind(project);
+    project.smartFillRegion = (object, seed, angle, scale = 0) => {
+      scales.push(scale);
+      return region(object, seed, angle, scale);
+    };
+    hover(50); env.frame();
+    controller.setSettings({ ...base, tool: "smartFill", smartScale: 0.6 });
+    env.frame();
+    expect(view.regionCalls).toHaveLength(2);
+    down(); up();
+    expect(scales.map((s) => +s.toFixed(6))).toEqual([0.2, 0.3, 0.3]); // the cube is scaled up 2x in the world
   });
 
   it("previews the region on hover without painting, and clears it when the pointer leaves", () => {

@@ -72,7 +72,7 @@ export class MeshTopology {
   readonly stats: TopologyStats;
   private normals: Float32Array | null = null;
 
-  constructor(private readonly mesh: EditableMesh, paintable: Uint8Array, spans?: readonly TopologySpan[]) {
+  constructor(readonly mesh: EditableMesh, paintable: Uint8Array, spans?: readonly TopologySpan[]) {
     const n = mesh.triCount;
     const tris = mesh.tris;
     const slots = n * 3;

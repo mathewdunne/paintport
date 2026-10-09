@@ -4,7 +4,7 @@ import { importDesign, type DesignImportOptions } from "./designImport";
 import { resolveTriangleState } from "./display";
 import { DocError } from "./errors";
 import type { ProjectEvent, ProjectListener } from "./events";
-import { shellFill, smartFill } from "./fill";
+import { featureFill, shellFill, smartFill } from "./fill";
 import { hashGeometry, newProjectId } from "./geometryHash";
 import { MeshTopology } from "./meshTopology";
 import type { BrushOpts, EditRecord, PaintField, PaintFieldView, State, Vec3 } from "./paintField";
@@ -455,15 +455,19 @@ export class Project {
 
   /**
    * Triangles a smart fill from `seedTri` would paint: flood across edges with a dihedral
-   * angle <= `angleDeg` that show the same state as the seed. Does not paint.
+   * angle <= `angleDeg` that show the same state as the seed. With a feature size `scale`
+   * (object units, > 0) the bend is measured over that size instead (see `featureFill`).
+   * Does not paint.
    */
-  smartFillRegion(objectIndex: number, seedTri: number, angleDeg: number): Uint32Array {
+  smartFillRegion(objectIndex: number, seedTri: number, angleDeg: number, scale = 0): Uint32Array {
     const object = this.objects[objectIndex];
-    return smartFill(this.topology(objectIndex), seedTri, angleDeg, {
+    const display = {
       painted: this.fields[objectIndex].displayStates(),
       triPart: object.triPart,
       baseOfPart: object.parts.map((p) => this._base.get(p.id) ?? 0),
-    });
+    };
+    const topology = this.topology(objectIndex);
+    return scale > 0 ? featureFill(topology, seedTri, angleDeg, scale, display) : smartFill(topology, seedTri, angleDeg, display);
   }
 
   // --- history -------------------------------------------------------------------

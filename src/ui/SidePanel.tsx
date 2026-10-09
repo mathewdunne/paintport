@@ -117,6 +117,18 @@ export function SidePanel({
                 />
               </SliderRow>
               <p className="text-xs text-muted-foreground">{strings.panel.smartFillHint}</p>
+              <SliderRow label={strings.panel.smartFillScale} value={strings.panel.scaleValue(settings.smartScale)}>
+                <Slider
+                  aria-label={strings.panel.smartFillScale}
+                  aria-valuetext={strings.panel.scaleValue(settings.smartScale)}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={[settings.smartScale]}
+                  onValueChange={([v]) => onSettings({ smartScale: v })}
+                />
+              </SliderRow>
+              <p className="text-xs text-muted-foreground">{strings.panel.smartFillScaleHint}</p>
             </section>
           </TabsContent>
           <TabsContent value="objects">

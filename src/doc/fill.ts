@@ -1,6 +1,7 @@
 // Region algorithms for the fill tools: pure functions over a MeshTopology that return the
 // triangles to paint. Tools paint the result with Project.paintTriangles; the hover
 // preview calls the same functions without painting.
+import { edgeNeighbors, featureBend } from "./featureField";
 import { neighborFlipped, neighborTri, NEIGHBOR_NON_MANIFOLD, type MeshTopology } from "./meshTopology";
 
 /** What a triangle currently shows: its paint, or its part's base color if unpainted. */
@@ -102,6 +103,127 @@ export function smartFill(topology: MeshTopology, seed: number, angleDeg: number
           if (c > best) { best = c; bestTri = neighborTri(link); }
         }
         if (bestTri >= 0 && stamp[bestTri] !== epoch && stateOf(bestTri) === seedState && best >= cosThreshold) visit(bestTri);
+      }
+    }
+  }
+  return queue.slice(0, tail);
+}
+
+interface HoleScratch {
+  /** Epoch per triangle known to lie outside any small hole (its component was too big). */
+  outside: Uint32Array;
+  /** Search id per triangle visited by the current hole search. */
+  seen: Uint32Array;
+  search: number;
+  list: Uint32Array;
+}
+const holeScratchOf = new WeakMap<MeshTopology, HoleScratch>();
+
+/**
+ * Smart fill at a feature size (`scale` > 0, object units): like `smartFill`, but the bend is
+ * measured on the surface smoothed over `scale` (see `featureBend`), so texture smaller than
+ * that neither stops the fill nor leaves specks. A crease reads as a band of high bend:
+ *
+ * 1. The flood spreads through triangles whose bend is below `angleDeg` and that show the
+ *    seed's state.
+ * 2. From there it climbs into the crease band while the bend keeps rising, so it stops at the
+ *    middle of the crease (where a fill from the other side stops too) instead of at its edge.
+ * 3. Holes of the seed's state that the region surrounds and that are smaller than a disc of
+ *    radius `scale` are filled: what is left inside after the climb stopped at a crest.
+ *
+ * Existing paint stops it as in `smartFill`. The seed is always included. On a mesh whose
+ * triangles are about as big as `scale` or bigger there is nothing to smooth: this is then
+ * `smartFill`.
+ */
+export function featureFill(topology: MeshTopology, seed: number, angleDeg: number, scale: number, display: DisplayView): Uint32Array {
+  const shell = topology.shellOfTri[seed];
+  if (shell === undefined || shell < 0) return NONE;
+  const bend = featureBend(topology, scale);
+  if (!bend) return smartFill(topology, seed, angleDeg, display);
+  const n = topology.triCount;
+  const normals = topology.faceNormals();
+  const { duplicateOf, duplicateGroups } = topology;
+  const { painted, triPart, baseOfPart } = display;
+  const angle = Number.isFinite(angleDeg) ? Math.min(180, Math.max(0, angleDeg)) : 0;
+  const limit = (angle * Math.PI) / 180;
+
+  let sc = scratchOf.get(topology);
+  if (!sc) scratchOf.set(topology, (sc = { stamp: new Uint32Array(n), queue: new Uint32Array(n), epoch: 0 }));
+  if (++sc.epoch === 0xffffffff) { sc.stamp.fill(0); sc.epoch = 1; }
+  const { stamp, queue, epoch } = sc;
+
+  const stateOf = (t: number): number => (painted[t] > 0 ? painted[t] : baseOfPart[triPart[t]]);
+  const seedState = stateOf(seed);
+  const srcOf = (t: number) => (duplicateOf && duplicateOf[t] >= 0 ? duplicateOf[t] : t); // duplicates have no edges of their own
+  const buf = new Int32Array(3), inner = new Int32Array(3);
+  let tail = 0;
+  const visit = (u: number): void => {
+    stamp[u] = epoch;
+    queue[tail++] = u;
+  };
+  const visitTwins = (t: number): void => {
+    const group = duplicateGroups?.get(t);
+    if (group) for (const m of group) if (stamp[m] !== epoch && stateOf(m) === seedState) visit(m);
+  };
+
+  // 1 + 2: flood below the limit, climb into creases while the bend rises.
+  visit(seed);
+  for (let head = 0; head < tail; head++) {
+    const t = queue[head];
+    visitTwins(t);
+    const src = srcOf(t);
+    const count = edgeNeighbors(topology, normals, src, buf);
+    for (let k = 0; k < count; k++) {
+      const u = neighborTri(buf[k]);
+      if (stamp[u] === epoch || stateOf(u) !== seedState) continue;
+      const flat = bend[u] < limit;
+      if (flat ? bend[src] < limit : bend[u] >= bend[src]) visit(u);
+    }
+  }
+
+  // 3: small holes. A search from the region's edge gives up as soon as it is too big or
+  // reaches a triangle an earlier search found to be outside.
+  const maxArea = Math.PI * scale * scale;
+  let hs = holeScratchOf.get(topology);
+  if (!hs) holeScratchOf.set(topology, (hs = { outside: new Uint32Array(n), seen: new Uint32Array(n), search: 0, list: new Uint32Array(n) }));
+  if (hs.search > 0xfffffff0) { hs.seen.fill(0); hs.search = 0; }
+  if (epoch === 1) hs.outside.fill(0); // the region epoch wrapped
+  const { outside, seen, list } = hs;
+  const { vertices, tris } = topology.mesh;
+  const areaOf = (t: number): number => {
+    const a = tris[t * 3] * 3, b = tris[t * 3 + 1] * 3, c = tris[t * 3 + 2] * 3;
+    const ux = vertices[b] - vertices[a], uy = vertices[b + 1] - vertices[a + 1], uz = vertices[b + 2] - vertices[a + 2];
+    const vx = vertices[c] - vertices[a], vy = vertices[c + 1] - vertices[a + 1], vz = vertices[c + 2] - vertices[a + 2];
+    return Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  };
+  const regionSize = tail;
+  for (let i = 0; i < regionSize; i++) {
+    const count = edgeNeighbors(topology, normals, srcOf(queue[i]), buf);
+    for (let k = 0; k < count; k++) {
+      const start = neighborTri(buf[k]);
+      if (stamp[start] === epoch || outside[start] === epoch || stateOf(start) !== seedState) continue;
+      const id = ++hs.search;
+      let size = 0, area = 0, closed = true;
+      seen[start] = id;
+      list[size++] = start;
+      for (let head = 0; head < size && closed; head++) {
+        const t = list[head];
+        area += areaOf(t);
+        if (area > maxArea) { closed = false; break; }
+        const c = edgeNeighbors(topology, normals, srcOf(t), inner);
+        for (let j = 0; j < c; j++) {
+          const u = neighborTri(inner[j]);
+          if (stamp[u] === epoch || seen[u] === id || stateOf(u) !== seedState) continue;
+          if (outside[u] === epoch) { closed = false; break; }
+          seen[u] = id;
+          list[size++] = u;
+        }
+      }
+      if (closed) {
+        for (let j = 0; j < size; j++) visit(list[j]);
+        for (let j = 0; j < size; j++) visitTwins(list[j]);
+      } else {
+        for (let j = 0; j < size; j++) outside[list[j]] = epoch;
       }
     }
   }

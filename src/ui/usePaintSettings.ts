@@ -4,7 +4,8 @@ import { DEFAULT_RADIUS, stepRadius } from "@/tools/radius";
 import type { PaintSettings } from "@/tools/types";
 import { clampActiveState, remapActiveState } from "./activeColor";
 
-export const DEFAULT_SMART_ANGLE = 30;
+export const DEFAULT_SMART_ANGLE = 20;
+export const DEFAULT_SMART_SCALE = 0.2;
 
 /**
  * The tool, active color, brush radius and fill settings the Paint tab edits and the paint tools use.
@@ -21,6 +22,7 @@ export function usePaintSettings(project: Project | null) {
     radius: DEFAULT_RADIUS,
     paintThrough: false,
     smartAngle: DEFAULT_SMART_ANGLE,
+    smartScale: DEFAULT_SMART_SCALE,
   });
   const patch = useCallback((p: Partial<PaintSettings>) => setSettings((s) => ({ ...s, ...p })), []);
   const step = useCallback((direction: -1 | 1) => setSettings((s) => ({ ...s, radius: stepRadius(s.radius, direction) })), []);
