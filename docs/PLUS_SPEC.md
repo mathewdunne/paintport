@@ -1,7 +1,7 @@
 # PaintPort+ — plan & spec
 
-Status: **phases 1–3 done (phase 3 awaiting the user's hands-on test). AI Paint (SAM) implemented on branch `ai-paint`,
-awaiting the user's hands-on test (Q10).** The decisions below came from question waves with the user (IDs like Q2.1 refer to section 7). Items marked
+Status: **phases 1–3 done. Phase 4: guided fill and AI Paint (SAM, Q10) done; the rest of
+phase 4 and phase 5 are next.** The decisions below came from question waves with the user (IDs like Q2.1 refer to section 7). Items marked
 _default_ are my calls on things we didn't discuss; push back on any of them.
 
 ## 1. Goal
