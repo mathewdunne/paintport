@@ -53,9 +53,9 @@ export const strings = {
     aiAnalyzing: "Analyzing the view...",
     aiFailed: "AI Paint couldn't analyze this view. Try again, or use guided fill.",
     aiRegion: (tris: number, positive: number, negative: number) =>
-      `${tris.toLocaleString("en-US")} ${tris === 1 ? "triangle" : "triangles"} · ${positive} in, ${negative} out`,
-    aiKeys: "Click: add · Shift+click: exclude · Tab: other size · Backspace: undo mark",
-    aiKeysNoCycle: "Click: add · Shift+click: exclude · Backspace: undo mark",
+      `${tris.toLocaleString("en-US")} ${tris === 1 ? "triangle" : "triangles"} Â· ${positive} in, ${negative} out`,
+    aiKeys: "Click: add Â· Shift+click: exclude Â· Tab: other size Â· Backspace: undo mark",
+    aiKeysNoCycle: "Click: add Â· Shift+click: exclude Â· Backspace: undo mark",
     guidedStart: "Click the area to fill. Then Shift+click wherever it shouldn't go.",
     guidedRegion: (tris: number, inside: number, outside: number) =>
       `${tris.toLocaleString("en-US")} ${tris === 1 ? "triangle" : "triangles"} Â· ${inside} in, ${outside} out`,

@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AiPaintSection } from "./AiPaintSection";
+import type { AiModelState } from "./useAiModel";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -61,11 +63,14 @@ interface SidePanelProps {
   mapping: MappingModel | null;
   onExport: () => void;
   exporting: boolean;
+  /** AI Paint's model state; its section shows while the tool is chosen. */
+  aiModel: AiModelState;
+  onDownloadAi: () => void;
 }
 
 export function SidePanel({
   project, tab, onTab, settings, onSettings, fillAdvancedOpen, onFillAdvancedOpen, onResetSmartFill, hiddenObjects, onToggleObject, onSoloObject, onShowAllObjects,
-  exportSettings, onExportSettings, mapping, onExport, exporting,
+  exportSettings, onExportSettings, mapping, onExport, exporting, aiModel, onDownloadAi,
 }: SidePanelProps) {
   // The automatic feature size is shown only while the Advanced section is open (it needs the mesh topology).
   const autoScale = useAutoFeatureScale(project, tab === "paint" && fillAdvancedOpen);
@@ -169,6 +174,12 @@ export function SidePanel({
                 </CollapsibleContent>
               </Collapsible>
             </section>
+            {settings.tool === "aiPaint" && (
+              <>
+                <Separator />
+                <AiPaintSection state={aiModel} onDownload={onDownloadAi} />
+              </>
+            )}
           </TabsContent>
           <TabsContent value="objects">
             {project ? (

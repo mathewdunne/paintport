@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import type { Project } from "@/doc/project";
 import { strings } from "@/strings";
 import { PaintController, type GuidedState } from "@/tools/PaintController";
+import type { Segmenter } from "@/sam/types";
+import type { AiState } from "@/tools/aiPaint";
 import type { PaintSettings } from "@/tools/types";
 import { ModelViewer } from "@/view/ModelViewer";
 import { projectToScene } from "@/view/projectScene";
@@ -22,12 +24,14 @@ interface ModelCanvasProps {
   toolsEnabled: boolean;
   /** Colors of the Print view per design state (undefined: show the design color), or null for the Design view. */
   printColors: readonly (string | undefined)[] | null;
+  /** AI Paint's model, or null while it isn't loaded. */
+  segmenter: Segmenter | null;
   /** The viewer could not start, build the model or draw it. */
   onFailed: () => void;
 }
 
 /** Mounts the three.js viewer and keeps it in sync with the project and the theme; paint tools act on it. */
-export function ModelCanvas({ project, settings, hiddenObjects, onPickState, toolsEnabled, printColors, onFailed }: ModelCanvasProps) {
+export function ModelCanvas({ project, settings, hiddenObjects, onPickState, toolsEnabled, printColors, segmenter, onFailed }: ModelCanvasProps) {
   const host = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLDivElement>(null);
   const swatch = useRef<HTMLSpanElement>(null);
@@ -42,6 +46,9 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
   latestSettings.current = settings;
   const latestToolsEnabled = useRef(toolsEnabled);
   latestToolsEnabled.current = toolsEnabled;
+  const latestSegmenter = useRef(segmenter);
+  latestSegmenter.current = segmenter;
+  const [ai, setAi] = useState<AiState | null>(null);
   const [guided, setGuided] = useState<GuidedState | null>(null);
 
   // The eyedropper's color chip follows the cursor. Updated through the DOM: it moves with
@@ -93,8 +100,9 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
     }
     if (!project || !scene) return;
     const unsync = syncViewerToProject(project, scene, v);
-    const ctl = new PaintController(project, v, { onPickState: (s) => picked.current(s), onSwatch: showSwatch, onGuided: setGuided }, latestSettings.current);
+    const ctl = new PaintController(project, v, { onPickState: (s) => picked.current(s), onSwatch: showSwatch, onGuided: setGuided, onAi: setAi }, latestSettings.current);
     ctl.setEnabled(latestToolsEnabled.current);
+    ctl.setSegmenter(latestSegmenter.current);
     controller.current = ctl;
     return () => {
       ctl.dispose();
@@ -102,12 +110,17 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
       controller.current = null;
       showSwatch(null);
       setGuided(null);
+      setAi(null);
     };
   }, [project, showSwatch]);
 
   useEffect(() => {
     controller.current?.setSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    controller.current?.setSegmenter(segmenter);
+  }, [segmenter]);
 
   // Print view: the tools are off and the left button orbits like the right one.
   useEffect(() => {
@@ -160,6 +173,34 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
               </>
             ) : (
               <span className="text-muted-foreground">{strings.viewport.guidedStart}</span>
+            )}
+          </div>
+        </div>
+      )}
+      {project && toolsEnabled && settings.tool === "aiPaint" && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-16 flex justify-center px-3">
+          <div role="status" className="pointer-events-auto flex flex-col items-center gap-1 rounded-lg border bg-background/95 px-3 py-2 text-xs shadow-sm">
+            {!segmenter || ai?.status === "noModel" ? (
+              <span className="text-muted-foreground">{strings.viewport.aiNoModel}</span>
+            ) : ai ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <span className="tabular-nums">
+                    {ai.status === "analyzing" ? strings.viewport.aiAnalyzing : ai.status === "failed" ? strings.viewport.aiFailed : strings.viewport.aiRegion(ai.tris, ai.positive, ai.negative)}
+                  </span>
+                  <Button size="xs" onClick={() => controller.current?.commitAi()} disabled={ai.tris === 0 || ai.status === "analyzing"}>
+                    {strings.viewport.guidedPaint}
+                    <kbd className="font-sans opacity-70">{strings.viewport.guidedPaintKey}</kbd>
+                  </Button>
+                  <Button size="xs" variant="outline" onClick={() => controller.current?.clearAi()}>
+                    {strings.viewport.guidedClear}
+                    <kbd className="font-sans opacity-70">{strings.viewport.guidedClearKey}</kbd>
+                  </Button>
+                </div>
+                <span className="text-muted-foreground">{ai.canCycle ? strings.viewport.aiKeys : strings.viewport.aiKeysNoCycle}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">{strings.viewport.aiStart}</span>
             )}
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { strings } from "@/strings";
 import { ConfirmDialog } from "@/ui/ConfirmDialog";
@@ -8,6 +8,8 @@ import { useExportAction } from "@/ui/export/useExportAction";
 import { useExportSettings } from "@/ui/export/useExportSettings";
 import { useMapping } from "@/ui/export/useMapping";
 import { SidePanel, type PanelTab } from "@/ui/SidePanel";
+import type { ToolId } from "@/tools/types";
+import { useAiModel } from "@/ui/useAiModel";
 import { ToolRail } from "@/ui/ToolRail";
 import { useEditorShortcuts } from "@/ui/useEditorShortcuts";
 import { useObjectVisibility } from "@/ui/useObjectVisibility";
@@ -24,7 +26,17 @@ export default function App() {
   const visibility = useObjectVisibility(project);
   const { view, setView } = useViewMode(project);
   const toolsOn = toolsEnabled(view);
-  useEditorShortcuts({ project, onTool: (tool) => patch({ tool }), onRadius: step, toolsEnabled: toolsOn });
+  const ai = useAiModel(settings.tool === "aiPaint");
+  const aiUnavailable = ai.state.kind === "unavailable" ? strings.aiUnavailable[ai.state.reason] : null;
+  const chooseTool = (tool: ToolId) => {
+    if (tool === "aiPaint" && aiUnavailable) return;
+    patch({ tool });
+  };
+  // A tool that turned out to be unavailable (e.g. no Cache API) gives way to the brush.
+  useEffect(() => {
+    if (aiUnavailable && settings.tool === "aiPaint") patch({ tool: "brush" });
+  }, [aiUnavailable, settings.tool, patch]);
+  useEditorShortcuts({ project, onTool: chooseTool, onRadius: step, toolsEnabled: toolsOn });
 
   const [tab, setTab] = useState<PanelTab>("paint");
   const { settings: exportSettings, update: updateExportSettings } = useExportSettings();
@@ -50,7 +62,7 @@ export default function App() {
           canEdit={toolsOn}
         />
         <div className="flex min-h-0 flex-1">
-          <ToolRail tool={settings.tool} onToolChange={(tool) => patch({ tool })} disabled={!toolsOn} />
+          <ToolRail tool={settings.tool} onToolChange={chooseTool} disabled={!toolsOn} unavailable={aiUnavailable ? { aiPaint: aiUnavailable } : undefined} />
           <Viewport
             project={project}
             settings={settings}
@@ -65,6 +77,7 @@ export default function App() {
             onDismissError={session.dismissError}
             onDismissNotice={session.dismissNotice}
             onImportFiles={session.requestImport}
+            segmenter={ai.state.kind === "ready" ? ai.state.segmenter : null}
           />
           <SidePanel
             project={project}
@@ -84,6 +97,8 @@ export default function App() {
             mapping={mapping}
             onExport={() => void exporter.run()}
             exporting={exporter.busy}
+            aiModel={ai.state}
+            onDownloadAi={ai.download}
           />
         </div>
       </div>

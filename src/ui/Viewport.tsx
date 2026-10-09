@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { Project } from "@/doc/project";
 import { cn } from "@/lib/utils";
 import { strings } from "@/strings";
+import type { Segmenter } from "@/sam/types";
 import type { PaintSettings } from "@/tools/types";
 import { ModelCanvas } from "./ModelCanvas";
 import type { HiddenObjects } from "./objectVisibility";
@@ -36,9 +37,11 @@ interface ViewportProps {
   onDismissError: () => void;
   onDismissNotice: (id: number) => void;
   onImportFiles: (files: ArrayLike<File>) => void;
+  /** AI Paint's model, or null while it isn't loaded. */
+  segmenter: Segmenter | null;
 }
 
-export function Viewport({ project, settings, onPickState, view, onViewChange, printColors, busy, error, hiddenObjects, notices, onDismissError, onDismissNotice, onImportFiles }: ViewportProps) {
+export function Viewport({ project, settings, onPickState, view, onViewChange, printColors, busy, error, hiddenObjects, notices, onDismissError, onDismissNotice, onImportFiles, segmenter }: ViewportProps) {
   const [dragging, setDragging] = useState(false);
   const [viewerFailed, setViewerFailed] = useState(false);
   const depth = useRef(0); // dragenter/dragleave also fire for children
@@ -82,6 +85,7 @@ export function Viewport({ project, settings, onPickState, view, onViewChange, p
         onPickState={onPickState}
         toolsEnabled={toolsEnabled(view)}
         printColors={printColors}
+        segmenter={segmenter}
         onFailed={() => setViewerFailed(true)}
       />
 
