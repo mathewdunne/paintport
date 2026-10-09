@@ -99,6 +99,8 @@ export class PaintController {
   private fillKey = "";
   private fillObject = -1;
   private lastFillMs = 0;
+  /** The last shell found to show the active color already (preview key, active color, shell): no preview there. */
+  private unchangedShell = "";
   private fillReady = true;
   private fillTimer = 0;
   private warmTimer = 0;
@@ -568,6 +570,14 @@ export class PaintController {
   private previewFill(hit: PickHit): void {
     const key = `${this.settings.tool}|${hit.object}|${this.settings.tool !== "shellFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}` : ""}|${this.epoch}`;
     if (key === this.fillKey && this.view.isRegionHighlighted(hit.object, hit.tri)) return;
+    // No preview where a fill would change nothing, e.g. right after filling there: the region
+    // already shows the active color. Smart fill only covers the seed's color, so the seed tells.
+    const active = this.paintState();
+    const shellKey = `${key}|${active}|${this.project.topology(hit.object).shellOfTri[hit.tri]}`;
+    if (this.settings.tool === "shellFill" ? shellKey === this.unchangedShell : resolveTriangleState(this.project, hit.object, hit.tri) === active) {
+      this.clearRegion();
+      return;
+    }
     if (!this.fillReady && this.lastFillMs >= SLOW_FILL_MS) {
       this.env.clearTimer(this.fillTimer);
       this.fillTimer = this.env.setTimer(() => {
@@ -579,6 +589,11 @@ export class PaintController {
     }
     const started = this.env.now();
     const region = this.fillRegion(hit);
+    if (this.settings.tool === "shellFill" && region.every((t) => resolveTriangleState(this.project, hit.object, t) === active)) {
+      this.unchangedShell = shellKey;
+      this.clearRegion();
+      return;
+    }
     this.view.setRegionHighlight(hit.object, region);
     this.lastFillMs = this.env.now() - started;
     this.fillKey = key;

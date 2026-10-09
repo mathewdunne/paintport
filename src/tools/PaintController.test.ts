@@ -558,6 +558,23 @@ describe("fills", () => {
     expect(scales).toEqual([0.123]); // already in the object's units: no transform conversion
   });
 
+  it("shows no preview where a fill would change nothing, so a fill shows its color at once", () => {
+    for (const tool of ["smartFill", "shellFill"] as const) {
+      const { project, view, env, hover, down, up, controller } = setup({ tool });
+      hover(50); env.frame();
+      expect(view.region, tool).not.toBeNull();
+      down(); up();
+      env.frame();
+      expect(painted(project).length, tool).toBeGreaterThan(0);
+      expect(view.region, tool).toBeNull(); // the filled region is not covered by the highlight
+      hover(60); env.frame();
+      expect(view.region, tool).toBeNull();
+      controller.setSettings({ ...base, tool, activeState: 3 }); // another color would change it again
+      env.frame();
+      expect(view.region, tool).not.toBeNull();
+    }
+  });
+
   it("previews the region on hover without painting, and clears it when the pointer leaves", () => {
     const { project, view, env, hover, fire, el } = setup({ tool: "smartFill" });
     hover(50);
