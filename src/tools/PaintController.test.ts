@@ -4,6 +4,8 @@ import { applyTransform, parseTransform } from "../core";
 import { createProject, type Project } from "../doc/project";
 import { sqDistPointTriangle } from "../doc/triangleMath";
 import { captureFor, FakeSegmenter, settle } from "../../test/support/fakeSam";
+import { texturedPlate, plateTriAt } from "../../test/support/plates";
+import { featureBend } from "../doc/featureField";
 import { PaintController, type ControllerEnv, type GuidedState } from "./PaintController";
 import type { AiState } from "./aiPaint";
 import type { BrushTarget, PaintSettings, PaintView, PickHit, ViewMark, SamCapture } from "./types";
@@ -624,6 +626,33 @@ describe("fills", () => {
     expect(view.region?.tris.includes(12)).toBe(true);
   });
 
+  it("recomputes a smoothed fill when moving from its interior onto a crease", () => {
+    const s = setup({ tool: "smartFill", smartAngle: 20, smartScale: 0.3 }, texturedPlate());
+    const interior = plateTriAt(1, 3);
+    const first = s.project.smartFillRegion(0, interior, 20, 0.3);
+    const bend = featureBend(s.project.topology(0), 0.3)!;
+    const crease = Array.from(first).find((t) => bend[t] >= 20 * Math.PI / 180)!;
+    expect(crease).toBeDefined();
+    const pick = s.view.pickFn;
+    s.view.pickFn = (x, y) => ({ ...pick(x, y)!, tri: x < 60 ? interior : crease });
+    s.hover(50); s.env.frame();
+    expect(s.view.region?.tris).toHaveLength(first.length);
+    s.hover(70); s.env.frame(); s.env.advance(100); s.env.frame();
+    expect(s.view.region?.tris).toEqual(s.project.smartFillRegion(0, crease, 20, 0.3));
+    const preview = Array.from(s.view.region!.tris).sort((a, b) => a - b);
+    s.down({ clientX: 70 }); s.up({ clientX: 70 });
+    expect(painted(s.project)).toEqual(preview);
+  });
+
+  it("clears a cached preview when the selected color already matches it", () => {
+    const s = setup({ tool: "smartFill" });
+    s.hover(50); s.env.frame();
+    expect(s.view.region).not.toBeNull();
+    s.controller.setSettings({ ...base, tool: "smartFill", activeState: 1 });
+    s.env.frame();
+    expect(s.view.region).toBeNull();
+  });
+
   it("shows no brush ring for fills, and a crosshair cursor over the model", () => {
     const { view, env, hover } = setup({ tool: "shellFill" });
     hover(50); env.frame();
@@ -840,6 +869,22 @@ describe("guided fill", () => {
     expect(highlighted(view)).toHaveLength(12); // the marks' region, not a new preview
     expect(view.marks).toHaveLength(1);
   });
+
+  it("uses changed settings when Enter arrives before the next frame", () => {
+    const s = setup({ tool: "guidedFill", smartAngle: 100 });
+    s.down(); s.up();
+    s.controller.setSettings({ ...base, tool: "guidedFill", smartAngle: 30 });
+    s.key("Enter");
+    expect(painted(s.project)).toEqual([4, 5]);
+  });
+
+  it("preserves a newly painted boundary when committed before the next frame", () => {
+    const s = setup({ tool: "guidedFill" });
+    s.down(); s.up();
+    s.project.paintTriangles(0, [5], 3);
+    s.controller.commitGuided();
+    expect(Array.from(s.project.fields[0].displayStates()).slice(4, 6)).toEqual([2, 3]);
+  });
 });
 
 describe("AI Paint", () => {
@@ -913,6 +958,15 @@ describe("AI Paint", () => {
     controller.setEnabled(false);
     expect(view.region).toBeNull();
     expect(ai.at(-1)).toBeNull();
+  });
+
+  it("refreshes changed paint boundaries before Enter commits", async () => {
+    const s = aiSetup();
+    s.down({ clientX: 30 }); s.up({ clientX: 30 });
+    await settle();
+    s.project.paintTriangles(0, [4], 3);
+    s.key("Enter");
+    expect(Array.from(s.project.fields[0].displayStates()).slice(4, 6)).toEqual([3, 2]);
   });
 
   it("says that the model is missing before it is loaded", () => {

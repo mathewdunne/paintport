@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OrtSegmenter, type SessionLike, type TensorFactory, type TensorLike } from "./ortSegmenter";
 import { SAM_MODEL } from "./model";
+import { settle } from "../../test/support/fakeSam";
 
 type FakeTensor = TensorLike & { type: string; disposed: boolean };
 const tensor: TensorFactory = (type, data, dims) => {
@@ -68,6 +69,63 @@ describe("OrtSegmenter", () => {
     (await segmenter.encode(image)).dispose();
     expect((embeddings as FakeTensor).disposed).toBe(true);
     segmenter.dispose();
+    await settle();
     expect(encoder.released && decoder.released).toBe(true);
+  });
+
+  it("serializes encodes and decodes that share the WebGPU runtime", async () => {
+    const s = setup();
+    const embedding = await s.segmenter.encode(image);
+    let finish!: () => void;
+    const run = s.encoder.run.bind(s.encoder);
+    s.encoder.run = async (feeds) => {
+      const result = await run(feeds);
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return result;
+    };
+    const second = s.segmenter.encode(image);
+    const third = s.segmenter.encode(image);
+    const decode = s.segmenter.decode(embedding, [{ x: 3, y: 4, positive: true }]);
+    await settle();
+    expect(s.encoder.feeds).toHaveLength(2); // only the first new encode is running
+    expect(s.decoder.feeds).toHaveLength(0);
+    finish();
+    await second;
+    await settle();
+    expect(s.encoder.feeds).toHaveLength(3);
+    expect(s.decoder.feeds).toHaveLength(0);
+    finish();
+    await third;
+    await decode;
+    expect(s.decoder.feeds).toHaveLength(1);
+  });
+
+  it("does not release a session while it is running", async () => {
+    const s = setup();
+    let finish!: () => void;
+    const run = s.encoder.run.bind(s.encoder);
+    s.encoder.run = async (feeds) => {
+      const result = await run(feeds);
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return result;
+    };
+    const pending = s.segmenter.encode(image);
+    await settle();
+    s.segmenter.dispose();
+    expect(s.encoder.released || s.decoder.released).toBe(false);
+    finish();
+    await pending;
+    await settle();
+    expect(s.encoder.released && s.decoder.released).toBe(true);
+    await expect(s.segmenter.encode(image)).rejects.toThrow(/disposed/i);
+  });
+
+  it("continues accepting work after an inference failure", async () => {
+    const s = setup();
+    const run = s.encoder.run.bind(s.encoder);
+    s.encoder.run = async () => { throw new Error('inference failed'); };
+    await expect(s.segmenter.encode(image)).rejects.toThrow('inference failed');
+    s.encoder.run = run;
+    await expect(s.segmenter.encode(image)).resolves.toMatchObject({ width: 16 });
   });
 });

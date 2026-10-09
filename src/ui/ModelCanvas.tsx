@@ -190,7 +190,7 @@ export function ModelCanvas({ project, settings, hiddenObjects, onPickState, too
                     {ai.status === "analyzing" && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
                     {ai.status === "analyzing" ? strings.viewport.aiAnalyzing : ai.status === "failed" ? strings.viewport.aiFailed : strings.viewport.aiRegion(ai.tris, ai.positive, ai.negative)}
                   </span>
-                  <Button size="xs" onClick={() => controller.current?.commitAi()} disabled={ai.tris === 0 || ai.status === "analyzing"}>
+                  <Button size="xs" onClick={() => controller.current?.commitAi()} disabled={ai.tris === 0 || ai.status !== "ready"}>
                     {strings.viewport.guidedPaint}
                     <kbd className="font-sans opacity-70">{strings.viewport.guidedPaintKey}</kbd>
                   </Button>

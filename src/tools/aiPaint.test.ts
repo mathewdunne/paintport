@@ -206,4 +206,76 @@ describe("AiPaintSession", () => {
     expect(s.errors).toHaveLength(1);
     expect(s.states.at(-1)).toMatchObject({ status: "failed" });
   });
+
+  it("does not let a cancelled request keep a new selection busy", async () => {
+    const s = setup(cubeSoup());
+    s.segmenter.hold = true;
+    s.session.mark(s.hitNear([1, 0.2, 0.5], [1, 0, 0]), true);
+    await settle();
+    s.session.clear();
+    s.segmenter.hold = false;
+    s.session.mark(s.hitNear([1, 0.3, 0.5], [1, 0, 0]), true);
+    await settle();
+    expect(s.states.at(-1)).toMatchObject({ status: "ready" });
+    s.session.commit();
+    expect(s.painted(2)).toHaveLength(16);
+    s.segmenter.release();
+    await settle();
+    expect(s.states.at(-1)).toBeNull();
+  });
+
+  it("lets the newest answer finish even if an older decode is still running", async () => {
+    const s = setup(cubeSoup());
+    s.segmenter.hold = true;
+    s.session.mark(s.hitNear([1, 0.2, 0.5], [1, 0, 0]), true);
+    await settle();
+    s.segmenter.hold = false;
+    s.session.mark(s.hitNear([1, 0.8, 0.5], [1, 0, 0]), false);
+    await settle();
+    expect(s.states.at(-1)).toMatchObject({ status: "ready", positive: 1, negative: 1 });
+    s.segmenter.release();
+    await settle();
+    expect(s.states.at(-1)).toMatchObject({ status: "ready" });
+  });
+
+  it("keeps an embedding alive until a cancelled decode has finished using it", async () => {
+    const s = setup(cubeSoup());
+    s.segmenter.hold = true;
+    s.session.mark(s.hitNear([1, 0.2, 0.5], [1, 0, 0]), true);
+    await settle();
+    s.session.clear();
+    await settle();
+    expect(s.segmenter.disposedEmbeddings).toBe(0);
+    s.segmenter.release();
+    await settle();
+    expect(s.segmenter.disposedEmbeddings).toBe(1);
+  });
+
+  it("stops analyzing when the only positive mark is replaced by an exclusion", async () => {
+    const s = setup(cubeSoup());
+    const hit = s.hitNear([1, 0.2, 0.5], [1, 0, 0]);
+    s.segmenter.hold = true;
+    s.session.mark(hit, true);
+    await settle();
+    s.session.mark(hit, false);
+    expect(s.states.at(-1)).toMatchObject({ status: "ready", positive: 0, negative: 1, tris: 0 });
+    s.segmenter.release();
+    await settle();
+    expect(s.shownRegion()).toBeNull();
+    expect(s.states.at(-1)).toMatchObject({ status: "ready", tris: 0 });
+  });
+
+  it("cannot commit the old mask after an exclusion click fails", async () => {
+    const s = setup(cubeSoup());
+    s.session.mark(s.hitNear([1, 0.2, 0.5], [1, 0, 0]), true);
+    await settle();
+    expect(s.shownRegion()).toHaveLength(16);
+    s.segmenter.fail = true;
+    s.session.mark(s.hitNear([1, 0.8, 0.5], [1, 0, 0]), false);
+    await settle();
+    expect(s.states.at(-1)).toMatchObject({ status: "failed", tris: 0, canCycle: false });
+    s.session.commit();
+    expect(s.painted(2)).toEqual([]);
+    expect(s.session.active).toBe(true); // keep the marks so the user can retry or undo
+  });
 });

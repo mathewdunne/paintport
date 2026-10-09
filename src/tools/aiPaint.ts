@@ -50,6 +50,11 @@ interface ViewEntry {
   points: SamPoint[];
   candidate: number;
   split: MaskSplit | null;
+  /** Only the latest request controls the UI; older work may still be releasing resources. */
+  pending: boolean;
+  failed: boolean;
+  running: number;
+  dropped: boolean;
 }
 
 const NO_MODEL: AiState = { status: "noModel", positive: 0, negative: 0, tris: 0, canCycle: false };
@@ -61,8 +66,6 @@ export class AiPaintSession {
   private views: ViewEntry[] = [];
   private region: Uint32Array = new Uint32Array(0);
   private nextView = 1;
-  private pending = 0;
-  private failed = false;
   /** Per object, built on first use (geometry never changes in v1). */
   private readonly frames = new Map<number, TriangleFrames>();
 
@@ -102,7 +105,7 @@ export class AiPaintSession {
         return;
       }
       embedding.catch(() => {}); // reported by the decode that waits for it
-      entry = { id: this.nextView++, capture, embedding, seq: 0, masks: null, points: [], candidate: 0, split: null };
+      entry = { id: this.nextView++, capture, embedding, seq: 0, masks: null, points: [], candidate: 0, split: null, pending: false, failed: false, running: 0, dropped: false };
       this.views.push(entry);
     }
     const id = entry.id;
@@ -133,7 +136,7 @@ export class AiPaintSession {
   /** Steps to SAM's next candidate mask when the last view has a single click (Tab). */
   cycle(): void {
     const entry = this.lastView();
-    if (!entry?.masks || entry.points.length !== 1 || entry.masks.length < 2 || this.pending > 0) return;
+    if (!entry?.masks || entry.points.length !== 1 || entry.masks.length < 2 || this.pending || this.failed) return;
     entry.candidate = (entry.candidate + 1) % entry.masks.length;
     this.liftView(entry);
     this.updateRegion();
@@ -141,7 +144,7 @@ export class AiPaintSession {
 
   /** Paints the region with the active color as one undo step and clears the marks (Enter). Does nothing while a view is analyzed. */
   commit(): void {
-    if (!this.active || this.pending > 0) return;
+    if (!this.active || this.pending || this.failed) return;
     const object = this.object, region = this.region, state = this.host.paintState();
     this.clear();
     if (state !== null && region.length > 0) this.host.project.paintTriangles(object, region, state);
@@ -153,7 +156,6 @@ export class AiPaintSession {
     for (const v of [...this.views]) this.dropView(v);
     this.marks = [];
     this.region = new Uint32Array(0);
-    this.failed = false;
     if (shown && this.object >= 0) {
       this.host.view.setRegionHighlight(this.object, null);
       this.host.view.setMarks([]);
@@ -178,6 +180,8 @@ export class AiPaintSession {
     const seq = ++entry.seq;
     const current = () => seq === entry.seq && this.views.includes(entry);
     const points = promptsFor(this.marks, entry.id, entry.capture.camera, entry.capture.visibility);
+    entry.pending = false;
+    entry.failed = false;
     if (!points.some((p) => p.positive)) {
       entry.masks = null;
       entry.split = null;
@@ -185,9 +189,9 @@ export class AiPaintSession {
       this.updateRegion();
       return;
     }
-    this.pending++;
+    entry.pending = true;
+    entry.running++;
     this.report();
-    let decoded = false;
     try {
       const embedding = await entry.embedding;
       if (!current()) return;
@@ -197,18 +201,22 @@ export class AiPaintSession {
       entry.points = points;
       entry.candidate = 0;
       this.liftView(entry);
-      this.failed = false;
-      decoded = true;
     } catch (error) {
       if (current()) {
-        this.failed = true;
+        entry.failed = true;
+        entry.masks = null;
+        entry.split = null;
+        entry.points = [];
         this.host.onError(error);
       }
     } finally {
-      this.pending--;
+      entry.running--;
+      if (entry.dropped && entry.running === 0) this.releaseEmbedding(entry);
+      if (current()) {
+        entry.pending = false;
+        this.updateRegion();
+      }
     }
-    if (decoded) this.updateRegion();
-    else if (current()) this.report();
   }
 
   private liftView(entry: ViewEntry): void {
@@ -253,11 +261,11 @@ export class AiPaintSession {
     const positive = this.marks.filter((m) => m.positive).length;
     const last = this.lastView();
     this.host.onState({
-      status: this.pending > 0 ? "analyzing" : this.failed ? "failed" : "ready",
+      status: this.pending ? "analyzing" : this.failed ? "failed" : "ready",
       positive,
       negative: this.marks.length - positive,
       tris: this.region.length,
-      canCycle: !!last?.masks && last.points.length === 1 && last.masks.length > 1,
+      canCycle: !this.pending && !this.failed && !!last?.masks && last.points.length === 1 && last.masks.length > 1,
     });
   }
 
@@ -268,8 +276,21 @@ export class AiPaintSession {
 
   private dropView(entry: ViewEntry): void {
     entry.seq++;
+    entry.dropped = true;
     this.views = this.views.filter((v) => v !== entry);
+    if (entry.running === 0) this.releaseEmbedding(entry);
+  }
+
+  private releaseEmbedding(entry: ViewEntry): void {
     entry.embedding.then((e) => e.dispose(), () => {});
+  }
+
+  private get pending(): boolean {
+    return this.views.some((v) => v.pending);
+  }
+
+  private get failed(): boolean {
+    return this.views.some((v) => v.failed);
   }
 
   private showMarks(): void {

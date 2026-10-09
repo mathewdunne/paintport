@@ -102,6 +102,7 @@ export class PaintController {
   private epoch = 0;
   private fillKey = "";
   private fillObject = -1;
+  private fillSeed = -1;
   private lastFillMs = 0;
   /** The last shell found to show the active color already (preview key, active color, shell): no preview there. */
   private unchangedShell = "";
@@ -342,7 +343,7 @@ export class PaintController {
     }
     if (e.type === "keydown" && this.ai.active && this.enabled && this.settings.tool === "aiPaint" && !e.ctrlKey && !e.metaKey && !e.altKey && !onControl(e.target)) {
       const ai = this.ai;
-      const action = e.key === "Enter" ? () => ai.commit()
+      const action = e.key === "Enter" ? () => this.commitAi()
         : e.key === "Escape" ? () => ai.clear()
         : e.key === "Backspace" || e.key === "Delete" ? () => ai.undoMark()
         : e.key === "Tab" ? () => ai.cycle()
@@ -507,6 +508,7 @@ export class PaintController {
 
   /** Paints the guided region with the active color as one undo step and clears the marks (Enter). */
   commitGuided(): void {
+    if (this.guidedDirty) this.updateGuided();
     const g = this.guided, state = this.paintState();
     if (!g) return;
     this.clearGuided();
@@ -528,6 +530,7 @@ export class PaintController {
 
   /** Recomputes the guided region from the marks and shows it with the marks. */
   private updateGuided(): void {
+    this.guidedDirty = false;
     const g = this.guided;
     if (!g) return;
     const inside = g.marks.filter((m) => m.inside), outside = g.marks.filter((m) => !m.inside);
@@ -618,14 +621,16 @@ export class PaintController {
   }
 
   /**
-   * Highlights the region a fill would paint. Moving within the highlighted region costs
-   * nothing (a flood from any of its triangles gives the same region); a new region is
-   * computed when the seed leaves it, the angle changes or the document changes. If the
+   * Highlights the region a fill would paint. Undirected fills can reuse the region while
+   * the pointer stays inside it. Smoothed fills climb creases in one direction, and
+   * non-manifold edges choose a direction, so those must also check the seed. If the
    * last computation was slow (a huge region), recomputation waits until the pointer rests.
    */
   private previewFill(hit: PickHit): void {
-    const key = `${this.settings.tool}|${hit.object}|${this.settings.tool !== "shellFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}` : ""}|${this.epoch}`;
-    if (key === this.fillKey && this.view.isRegionHighlighted(hit.object, hit.tri)) return;
+    const key = `${this.settings.tool}|${hit.object}|${this.settings.activeState}|${this.settings.tool !== "shellFill" ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}` : ""}|${this.epoch}`;
+    const undirected = this.settings.tool === "shellFill" ||
+      (this.objectScale(hit.object, hit.point) === 0 && !this.project.topology(hit.object).nonManifoldLinks?.size);
+    if (key === this.fillKey && (undirected || hit.tri === this.fillSeed) && this.view.isRegionHighlighted(hit.object, hit.tri)) return;
     // No preview where a fill would change nothing, e.g. right after filling there: the region
     // already shows the active color. Smart fill only covers the seed's color, so the seed tells.
     const active = this.paintState();
@@ -654,6 +659,7 @@ export class PaintController {
     this.lastFillMs = this.env.now() - started;
     this.fillKey = key;
     this.fillObject = hit.object;
+    this.fillSeed = hit.tri;
     this.fillReady = this.lastFillMs < SLOW_FILL_MS;
   }
 
@@ -678,6 +684,10 @@ export class PaintController {
 
   /** Paints AI Paint's region (the viewport bar's Paint button). */
   commitAi(): void {
+    if (this.aiDirty) {
+      this.aiDirty = false;
+      this.ai.refresh();
+    }
     this.ai.commit();
   }
 

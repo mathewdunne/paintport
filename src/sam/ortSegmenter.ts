@@ -28,6 +28,10 @@ interface OrtEmbedding extends SamEmbedding {
 
 export class OrtSegmenter implements Segmenter {
   readonly inputSize: number;
+  // Encoder and decoder share ORT's WebGPU/WASM runtime. Overlapping runs (for example,
+  // clearing a selection and clicking again during encoding) can deadlock that runtime.
+  private tail: Promise<void> = Promise.resolve();
+  private disposed = false;
 
   constructor(
     private readonly tensor: TensorFactory,
@@ -38,7 +42,11 @@ export class OrtSegmenter implements Segmenter {
     this.inputSize = manifest.inputSize;
   }
 
-  async encode(image: SamImage): Promise<SamEmbedding> {
+  encode(image: SamImage): Promise<SamEmbedding> {
+    return this.enqueue(() => this.encodeNow(image));
+  }
+
+  private async encodeNow(image: SamImage): Promise<SamEmbedding> {
     const { io, inputSize, normalization } = this.manifest;
     const pixels = this.tensor("float32", toPixelValues(image, inputSize, normalization), [1, 3, inputSize, inputSize]);
     try {
@@ -61,7 +69,11 @@ export class OrtSegmenter implements Segmenter {
     }
   }
 
-  async decode(embedding: SamEmbedding, points: readonly SamPoint[]): Promise<SamMask[]> {
+  decode(embedding: SamEmbedding, points: readonly SamPoint[]): Promise<SamMask[]> {
+    return this.enqueue(() => this.decodeNow(embedding, points));
+  }
+
+  private async decodeNow(embedding: SamEmbedding, points: readonly SamPoint[]): Promise<SamMask[]> {
     const { io, inputSize } = this.manifest;
     const e = embedding as OrtEmbedding;
     const coords = new Float32Array(points.length * 2), labels = new BigInt64Array(points.length);
@@ -92,8 +104,19 @@ export class OrtSegmenter implements Segmenter {
   }
 
   dispose(): void {
-    void this.encoder.release();
-    void this.decoder.release();
+    if (this.disposed) return;
+    this.disposed = true;
+    void this.tail.then(async () => {
+      try { await this.encoder.release(); }
+      finally { await this.decoder.release(); }
+    }).catch((error) => console.error("AI Paint runtime cleanup failed", error));
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.disposed) return Promise.reject(new Error("AI Paint model is disposed"));
+    const result = this.tail.then(operation);
+    this.tail = result.then(() => {}, () => {}); // a failed run must not poison the queue
+    return result;
   }
 }
 
