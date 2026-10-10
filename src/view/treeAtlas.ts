@@ -47,11 +47,23 @@ export class TreeAtlas {
   private used = 1; // word 0 stays unused, so root + 1 = 0 can mean "no tree"
   private garbage = 0;
   private compacted = false;
+  /**
+   * The next upload must send the whole buffer (a new texture, or a compaction moved every tree):
+   * three.js uploads only the update ranges when there are any, so none may be added until it has.
+   */
+  private wholeUpload = true;
   private readonly entries = new Map<number, Map<number, Entry>>();
 
   constructor() {
     this.data = new Uint32Array(ATLAS_WIDTH * MIN_ROWS);
-    this.uniform = { value: createTexture(this.data, MIN_ROWS) };
+    this.uniform = { value: this.newTexture(MIN_ROWS) };
+  }
+
+  private newTexture(rows: number): DataTexture {
+    const texture = createTexture(this.data, rows);
+    texture.onUpdate = () => { this.wholeUpload = false; };
+    this.wholeUpload = true;
+    return texture;
   }
 
   get texture(): DataTexture {
@@ -153,7 +165,7 @@ export class TreeAtlas {
     bigger.set(this.data.subarray(0, this.used));
     this.data = bigger;
     const old = this.uniform.value;
-    this.uniform.value = createTexture(this.data, rows); // uploads whole
+    this.uniform.value = this.newTexture(rows); // uploads whole
     old.dispose();
   }
 
@@ -170,12 +182,15 @@ export class TreeAtlas {
     }
     this.texture.needsUpdate = true;
     this.texture.clearUpdateRanges(); // the whole texture uploads
+    this.wholeUpload = true;
     this.compacted = true;
   }
 
   /** Flags words for upload, one range per texture row (three.js counts 4 components per texel). */
   private flag(start: number, count: number): void {
     const texture = this.texture;
+    texture.needsUpdate = true;
+    if (this.wholeUpload) return;
     let at = start;
     const end = start + count;
     while (at < end) {
@@ -183,7 +198,6 @@ export class TreeAtlas {
       texture.addUpdateRange(at * 4, (rowEnd - at) * 4);
       at = rowEnd;
     }
-    texture.needsUpdate = true;
   }
 }
 

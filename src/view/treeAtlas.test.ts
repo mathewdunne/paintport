@@ -1,3 +1,4 @@
+import type { DataTexture } from "three";
 import { describe, expect, it } from "vitest";
 import { emitTree, paintSphereTree, stateAtBary, treeLeaves, type Bary, type TreeNode } from "../doc/splitTree";
 import { ATLAS_WIDTH, HIGHLIGHT_BIT, TreeAtlas, walkAtlas } from "./treeAtlas";
@@ -19,6 +20,40 @@ function randomBary(rand: () => number): Bary {
 
 function lcg(seed: number) {
   return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+}
+
+/**
+ * What the GPU holds, uploaded the way three.js (WebGL 2, texture storage) does it: a new texture
+ * starts zeroed, and an upload sends only the flagged ranges, or the whole texture when none are.
+ */
+class GpuMirror {
+  words = new Uint32Array(0);
+  private texture: DataTexture | null = null;
+  private version = 0;
+
+  render(atlas: TreeAtlas): void {
+    const t = atlas.texture;
+    const data = t.image.data as Uint32Array;
+    if (t !== this.texture) {
+      this.texture = t;
+      this.words = new Uint32Array(data.length);
+      this.version = 0;
+    }
+    if (t.version === this.version) return;
+    if (t.updateRanges.length === 0) this.words.set(data);
+    else for (const r of t.updateRanges) this.words.set(data.subarray(r.start / 4, (r.start + r.count) / 4), r.start / 4);
+    t.clearUpdateRanges();
+    this.version = t.version;
+    t.onUpdate?.(t);
+  }
+}
+
+/** Every leaf of `tree` reads back with its state at its centroid. */
+function expectLeaves(words: Uint32Array, root: number, tree: TreeNode, label: string): void {
+  treeLeaves(tree).forEach((l, i) => {
+    const c = l.tri.map((_, k) => (l.tri[0][k] + l.tri[1][k] + l.tri[2][k]) / 3) as Bary;
+    expect(walkAtlas(words, root, c) & 0xffff, `${label} leaf ${i}`).toBe(l.state);
+  });
 }
 
 describe("TreeAtlas", () => {
@@ -107,9 +142,40 @@ describe("TreeAtlas", () => {
     expect(walkAtlas(atlas.words, root, c) & HIGHLIGHT_BIT).not.toBe(0);
   });
 
+  it("uploads every tree after the texture grows (renders between dabs)", () => {
+    const atlas = new TreeAtlas();
+    const gpu = new GpuMirror();
+    const trees: TreeNode[] = [];
+    for (let i = 0; atlas.texture.image.height < 4; i++) {
+      trees.push(strokeTree(i % 40, 12));
+      atlas.set(0, i, emitTree(trees[i]));
+      gpu.render(atlas);
+    }
+    trees.forEach((t, i) => expectLeaves(gpu.words, atlas.rootOf(0, i) - 1, t, `tree ${i}`));
+  });
+
+  it("uploads every tree after a compaction, also with more trees stored before the next render", () => {
+    const atlas = new TreeAtlas();
+    const gpu = new GpuMirror();
+    const keep = strokeTree(9, 12), other = strokeTree(3, 12);
+    atlas.set(0, 0, emitTree(keep));
+    gpu.render(atlas);
+    let compacted = false;
+    for (let round = 0; round < 400 && !compacted; round++) {
+      atlas.set(0, 1, emitTree(strokeTree(round % 30, 12)));
+      compacted = atlas.takeCompacted();
+      if (!compacted) gpu.render(atlas);
+    }
+    expect(compacted).toBe(true);
+    atlas.set(0, 2, emitTree(other)); // the same frame
+    gpu.render(atlas);
+    expectLeaves(gpu.words, atlas.rootOf(0, 0) - 1, keep, "tree 0");
+    expectLeaves(gpu.words, atlas.rootOf(0, 2) - 1, other, "tree 2");
+  });
+
   it("flags uploads per texture row", () => {
     const atlas = new TreeAtlas();
-    atlas.texture.clearUpdateRanges();
+    new GpuMirror().render(atlas); // the first upload is whole
     atlas.set(0, 0, emitTree(strokeTree(4)));
     const ranges = atlas.texture.updateRanges;
     expect(ranges.length).toBeGreaterThan(0);
