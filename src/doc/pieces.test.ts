@@ -61,7 +61,7 @@ describe("pieces of a tree", () => {
     const corners = [[0, 0, 0], [10, 0, 0], [0, 10, 0]] as const;
     for (let i = 0; i < 4; i++) t = paintSphereTree(t, corners, [2 + i, 2 + i * 0.5, 0], 1.2, 2, 0.3);
     checkAgainstBruteForce(t);
-  });
+  }, 30_000); // O(leaves^2 * 576) brute force: ~2.4s locally, over the 5s default on slow CI runners
 });
 
 /** A 10 x 10 quad: triangle 0 = (0,0) (10,0) (10,10), triangle 1 = (0,0) (10,10) (0,10); they share the diagonal. */
