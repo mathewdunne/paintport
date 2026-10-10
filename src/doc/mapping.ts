@@ -267,7 +267,7 @@ function filePhysicalColors(source: Pick<SourceInfo, "filaments">): Map<number, 
  * 0.15000000000000002) and reads any positive weights the same way. Null if a ratio is not a
  * positive number or rounds to 0 %.
  */
-function recipeWeights(ratios: readonly number[]): number[] | null {
+export function recipeWeights(ratios: readonly number[]): number[] | null {
   if (ratios.some((r) => !Number.isFinite(r) || r <= 0)) return null;
   if (ratios.every((r) => Number.isInteger(r) && r <= 100)) return [...ratios];
   const sum = ratios.reduce((s, r) => s + r, 0);

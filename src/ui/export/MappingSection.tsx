@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { Pin } from "lucide-react";
+import { Palette, Pin } from "lucide-react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MixSlot } from "@/core";
 import { activeSpools, type MappingPin, type ResolvedTarget } from "@/doc/mapping";
+import type { PalettePrint } from "@/doc/palettePrint";
 import type { Project } from "@/doc/project";
 import type { ExportSettings } from "@/persist/exportSettings";
 import { strings } from "@/strings";
@@ -11,15 +12,21 @@ import {
   AUTO_VALUE, mappingRows, pinName, rowChoices, targetName, toMappingSettings,
   type ChoiceOption, type MappingModel, type MappingRow,
 } from "./mappingView";
+import { PalettePicker } from "./PalettePicker";
+
+/** The select value of "Pick from palette...": opens the picker, never a selection of its own. */
+const PALETTE_VALUE = "palette";
 
 interface MappingSectionProps {
   project: Project;
   settings: ExportSettings;
   model: MappingModel;
+  /** The loaded palette print, offered in every row's dropdown. */
+  palette: PalettePrint | null;
 }
 
 /** One compact row per used design color: its swatch, a dropdown for the target, and the color it prints as. */
-export function MappingSection({ project, settings, model }: MappingSectionProps) {
+export function MappingSection({ project, settings, model, palette }: MappingSectionProps) {
   const rows = useMemo(
     () => mappingRows(project, settings, model),
     // project.palette and project.mapping are replaced on change, and `model` is recomputed then.
@@ -35,6 +42,7 @@ export function MappingSection({ project, settings, model }: MappingSectionProps
           row={row}
           active={active}
           allowMix={settings.allowMix}
+          palette={palette}
           onChoose={(pin) => project.setPin(row.state, pin)}
         />
       ))}
@@ -46,12 +54,14 @@ interface MappingRowViewProps {
   row: MappingRow;
   active: readonly MixSlot[];
   allowMix: boolean;
+  palette: PalettePrint | null;
   /** A pin, or null for Auto. */
   onChoose: (pin: MappingPin | null) => void;
 }
 
-function MappingRowView({ row, active, allowMix, onChoose }: MappingRowViewProps) {
+function MappingRowView({ row, active, allowMix, palette, onChoose }: MappingRowViewProps) {
   const [open, setOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
   // Ranking the blends costs a little per row, so only the open dropdown does it.
   const choices = useMemo(() => rowChoices(row, active, allowMix, open), [row, active, allowMix, open]);
   const all = useMemo(() => new Map([...choices.spools, ...choices.blends].map((o) => [o.value, o])), [choices]);
@@ -67,6 +77,8 @@ function MappingRowView({ row, active, allowMix, onChoose }: MappingRowViewProps
         onOpenChange={setOpen}
         onValueChange={(value) => {
           if (value === AUTO_VALUE) onChoose(null);
+          // Opened once the dropdown has closed, so the key that chose this does not reach the dialog.
+          else if (value === PALETTE_VALUE) requestAnimationFrame(() => setPicking(true));
           else {
             const option = all.get(value);
             if (option?.pin) onChoose(option.pin);
@@ -82,6 +94,12 @@ function MappingRowView({ row, active, allowMix, onChoose }: MappingRowViewProps
           <SelectItem value={AUTO_VALUE} className="text-xs">
             <AutoOption auto={row.auto} />
           </SelectItem>
+          {palette && (
+            <SelectItem value={PALETTE_VALUE} className="text-xs">
+              <Palette className="size-3.5 text-muted-foreground" />
+              {strings.export.pickFromPalette}
+            </SelectItem>
+          )}
           {choices.spools.length > 0 && (
             <>
               <SelectSeparator />
@@ -102,6 +120,18 @@ function MappingRowView({ row, active, allowMix, onChoose }: MappingRowViewProps
           )}
         </SelectContent>
       </Select>
+      {palette && (
+        <PalettePicker
+          open={picking}
+          onOpenChange={setPicking}
+          palette={palette}
+          designColor={row.designColor}
+          resolved={row.resolved}
+          active={active}
+          allowMix={allowMix}
+          onPick={onChoose}
+        />
+      )}
       {result ? (
         <span
           className="flex w-[4.25rem] shrink-0 items-center gap-1.5"

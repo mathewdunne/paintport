@@ -106,13 +106,15 @@ user can pick a blend by looking at the print.
 - **How many (Q13.4)**: one palette, kept in localStorage (`paintportplus.palette`, only the
   dots: a few KB) like the spools; loading another replaces it, and it can be removed. It is
   an app setting, not project data.
-- **Picker (Q13.5)**: with a palette loaded, each mapping row's dropdown ends with "Pick from
-  palette…", which opens a dialog: the design color being matched, and the dots laid out as
+- **Picker (Q13.5)**: with a palette loaded, each mapping row's dropdown has "Pick from
+  palette…" right below Auto (at the end of the list it sat below the fold), which opens a
+  dialog: the design color being matched, and the dots laid out as
   printed (bed Y up, so the front of the print is at the bottom). Hovering or focusing a dot
   shows its name and recipe (by slot, "S3 85% + S4 15%", when usable; otherwise the reason it
   is greyed out); the dot matching the row's current recipe is ringed. Clicking a
   usable dot pins its spool or blend (a normal mapping pin) and closes the dialog. Dots are
-  buttons (Tab, Enter).
+  buttons (Tab, Enter); the dialog opens with the map focused, not a dot, so the Enter that
+  chose "Pick from palette…" cannot pick one.
 - **Later, not now (Q13.6)**: recording a dot's real color (rankings and Print view from
   real colors), several palettes, rotating the map, Bambu/Snapmaker palettes.
 
@@ -647,5 +649,5 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q13.2 | Finding a dot | Layout only, dots in the file's stored colors; no closest-match rings |
 | Q13.3 | Different spools | Match by color; dots needing a missing color are greyed out with the reason |
 | Q13.4 | Number of palettes | One, kept like the spools; loading another replaces it |
-| Q13.5 | Picker | "Pick from palette…" at the end of each mapping dropdown opens a dialog; a click pins (design, not asked) |
+| Q13.5 | Picker | "Pick from palette…" below Auto in each mapping dropdown opens a dialog; a click pins (design, not asked) |
 | Q13.6 | Later | Real dot colors, several palettes, rotation, bbs palettes |
