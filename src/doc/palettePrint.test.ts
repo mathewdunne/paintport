@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Model, PartRange } from "../core";
 import { joinMeshes, makeModel, type MeshSpec } from "../../test/support/docFixtures";
-import { dotChoice, dotIsCurrent, paletteFromModel, type PaletteDot } from "./palettePrint";
+import { dotChoice, dotIsCurrent, paletteFromModel, pickerStartIndex, type PaletteDot, type PalettePrint } from "./palettePrint";
 
 /** An axis-aligned box centered at (cx, cy) with half size `half` in X and Y, from z = 0 to `height`. */
 function box(cx: number, cy: number, half: number, height: number): MeshSpec {
@@ -125,5 +125,32 @@ describe("dotIsCurrent", () => {
     expect(dotIsCurrent(choice, { kind: "spool", slot: 2, color: CYAN, deltaE: 0, source: "auto" })).toBe(false);
     expect(dotIsCurrent({ kind: "mixOff" }, { kind: "none", source: "auto" })).toBe(false);
     expect(dotIsCurrent({ kind: "pin", pin: { kind: "spool", slot: 2 } }, { kind: "spool", slot: 2, color: CYAN, deltaE: 0, source: "pin" })).toBe(true);
+  });
+});
+
+describe("pickerStartIndex", () => {
+  const dots = paletteFromModel(palette(), "pal")!.dots;
+  const blue = byName(dots, "1 Blue"), blend = byName(dots, "7 B-R 85-15 & more");
+  const spools = [{ slot: 1, color: WHITE }, { slot: 2, color: CYAN }, { slot: 3, color: MAGENTA }];
+  const blues: PalettePrint = { name: "blues", dots: [blue] };
+  const blends: PalettePrint = { name: "blends", dots: [blend] };
+  const both: PalettePrint = { name: "both", dots: [blend, blue] };
+  const onBlue = { kind: "spool", slot: 2, color: CYAN, deltaE: 0, source: "pin" } as const;
+  const nothing = { kind: "none", source: "auto" } as const;
+
+  it("opens on the last palette used when it holds the current dot, else the first that does", () => {
+    expect(pickerStartIndex([blends, blues, both], 2, spools, true, onBlue)).toBe(2);
+    expect(pickerStartIndex([blends, blues, both], 0, spools, true, onBlue)).toBe(1);
+  });
+
+  it("falls back to the last palette used, clamped to the list", () => {
+    expect(pickerStartIndex([blends, blues], 1, spools, true, nothing)).toBe(1);
+    expect(pickerStartIndex([blends, blues], 5, spools, true, nothing)).toBe(1);
+    expect(pickerStartIndex([blends, blues], -1, spools, true, nothing)).toBe(0);
+    expect(pickerStartIndex([], 3, spools, true, nothing)).toBe(0);
+  });
+
+  it("ignores backdrops", () => {
+    expect(pickerStartIndex([blends, { name: "plate", dots: [{ ...blue, backdrop: true }] }], 0, spools, true, onBlue)).toBe(0);
   });
 });

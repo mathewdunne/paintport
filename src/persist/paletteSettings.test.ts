@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PalettePrint } from "../doc/palettePrint";
-import { loadPalettePrint, PALETTE_KEY, savePalettePrint, type PaletteStorage } from "./paletteSettings";
+import { loadPalettePrints, MAX_PALETTES, PALETTE_KEY, savePalettePrints, type PaletteStorage } from "./paletteSettings";
 
 function memoryStorage(): PaletteStorage & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -20,38 +20,58 @@ const palette: PalettePrint = {
   ],
 };
 
+const other: PalettePrint = { name: "Black mix", dots: [palette.dots[1]] };
+
 describe("palette settings", () => {
-  it("round-trips a palette and removes it", () => {
+  it("round-trips palettes in order and removes them", () => {
     const storage = memoryStorage();
-    expect(loadPalettePrint(storage)).toBeNull();
-    expect(savePalettePrint(palette, storage)).toBe(true);
-    expect(loadPalettePrint(storage)).toEqual(palette);
-    expect(savePalettePrint(null, storage)).toBe(true);
+    expect(loadPalettePrints(storage)).toEqual([]);
+    expect(savePalettePrints([palette, other], storage)).toBe(true);
+    expect(loadPalettePrints(storage)).toEqual([palette, other]);
+    expect(savePalettePrints([], storage)).toBe(true);
     expect(storage.data.has(PALETTE_KEY)).toBe(false);
-    expect(loadPalettePrint(storage)).toBeNull();
+    expect(loadPalettePrints(storage)).toEqual([]);
   });
 
-  it("ignores a stored palette that is not valid, as a whole", () => {
+  it("reads a version 1 record (one palette) as a list of one", () => {
+    const storage = memoryStorage();
+    storage.setItem(PALETTE_KEY, JSON.stringify({ version: 1, ...palette }));
+    expect(loadPalettePrints(storage)).toEqual([palette]);
+    storage.setItem(PALETTE_KEY, JSON.stringify({ version: 1, ...palette, dots: [] }));
+    expect(loadPalettePrints(storage)).toEqual([]);
+  });
+
+  it("drops a stored palette that is not valid, as a whole, and keeps the others", () => {
     const storage = memoryStorage();
     const stored = (change: (o: { version: number; name: unknown; dots: Record<string, unknown>[] }) => void) => {
-      const o = JSON.parse(JSON.stringify({ version: 1, ...palette }));
+      const o = JSON.parse(JSON.stringify(palette));
       change(o);
-      storage.setItem(PALETTE_KEY, JSON.stringify(o));
-      return loadPalettePrint(storage);
+      storage.setItem(PALETTE_KEY, JSON.stringify({ version: 2, palettes: [o, other] }));
+      return loadPalettePrints(storage);
     };
-    expect(stored(() => {})).toEqual(palette);
-    expect(stored((o) => { o.version = 2; })).toBeNull();
-    expect(stored((o) => { o.dots = []; })).toBeNull();
-    expect(stored((o) => { o.name = 5; })).toBeNull();
-    expect(stored((o) => { o.dots[1].color = "#0594e5"; })).toBeNull(); // not normalized
-    expect(stored((o) => { o.dots[1].r = 0; })).toBeNull();
-    expect(stored((o) => { o.dots[1].x = "1"; })).toBeNull();
-    expect(stored((o) => { o.dots[1].backdrop = 1; })).toBeNull();
-    expect(stored((o) => { o.dots[1].ingredients = []; })).toBeNull();
-    expect(stored((o) => { (o.dots[1].ingredients as { weight: number }[])[0].weight = 0.85; })).toBeNull();
-    expect(stored((o) => { (o.dots[1].ingredients as { weight: number }[])[0].weight = 101; })).toBeNull();
+    expect(stored(() => {})).toEqual([palette, other]);
+    expect(stored((o) => { o.dots = []; })).toEqual([other]);
+    expect(stored((o) => { o.name = 5; })).toEqual([other]);
+    expect(stored((o) => { o.name = "x".repeat(201); })).toEqual([other]);
+    expect(stored((o) => { o.dots[1].color = "#0594e5"; })).toEqual([other]); // not normalized
+    expect(stored((o) => { o.dots[1].r = 0; })).toEqual([other]);
+    expect(stored((o) => { o.dots[1].x = "1"; })).toEqual([other]);
+    expect(stored((o) => { o.dots[1].backdrop = 1; })).toEqual([other]);
+    expect(stored((o) => { o.dots[1].ingredients = []; })).toEqual([other]);
+    expect(stored((o) => { (o.dots[1].ingredients as { weight: number }[])[0].weight = 0.85; })).toEqual([other]);
+    expect(stored((o) => { (o.dots[1].ingredients as { weight: number }[])[0].weight = 101; })).toEqual([other]);
+    storage.setItem(PALETTE_KEY, JSON.stringify({ version: 3, palettes: [palette] }));
+    expect(loadPalettePrints(storage)).toEqual([]);
+    storage.setItem(PALETTE_KEY, JSON.stringify({ version: 2, palettes: {} }));
+    expect(loadPalettePrints(storage)).toEqual([]);
     storage.setItem(PALETTE_KEY, "{not json");
-    expect(loadPalettePrint(storage)).toBeNull();
+    expect(loadPalettePrints(storage)).toEqual([]);
+  });
+
+  it("reads at most MAX_PALETTES palettes", () => {
+    const storage = memoryStorage();
+    storage.setItem(PALETTE_KEY, JSON.stringify({ version: 2, palettes: Array.from({ length: MAX_PALETTES + 3 }, () => other) }));
+    expect(loadPalettePrints(storage)).toHaveLength(MAX_PALETTES);
   });
 
   it("survives storage that throws or is missing", () => {
@@ -60,10 +80,10 @@ describe("palette settings", () => {
       setItem: () => { throw new Error("full"); },
       removeItem: () => { throw new Error("denied"); },
     };
-    expect(loadPalettePrint(broken)).toBeNull();
-    expect(savePalettePrint(palette, broken)).toBe(false);
-    expect(savePalettePrint(null, broken)).toBe(false);
-    expect(loadPalettePrint(null)).toBeNull();
-    expect(savePalettePrint(palette, null)).toBe(false);
+    expect(loadPalettePrints(broken)).toEqual([]);
+    expect(savePalettePrints([palette], broken)).toBe(false);
+    expect(savePalettePrints([], broken)).toBe(false);
+    expect(loadPalettePrints(null)).toEqual([]);
+    expect(savePalettePrints([palette], null)).toBe(false);
   });
 });

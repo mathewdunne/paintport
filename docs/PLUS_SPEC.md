@@ -103,9 +103,16 @@ user can pick a blend by looking at the print.
   on an active spool (exact normalized hex; when a color is on two spools, the lower slot).
   Otherwise it is greyed out, naming the missing color. Blend dots are also greyed out while
   "Allow ColorMix" is off.
-- **How many (Q13.4)**: one palette, kept in localStorage (`paintportplus.palette`, only the
-  dots: a few KB) like the spools; loading another replaces it, and it can be removed. It is
-  an app setting, not project data.
+- **How many (Q13.4)**: several (changed 2026-10-10 from one, so a white-mix and a black-mix
+  print can both be loaded), up to 20, kept in localStorage (`paintportplus.palette` version 2,
+  only the dots: a few KB each; a stored version 1 palette becomes the first) like the spools.
+  They are app settings, not project data. With none, the Export tab shows the load button;
+  otherwise it names them and "Manage..." opens a dialog that lists them in the order added
+  (name edited in place, dot count, remove) with "Add palette 3MF...". Loading always adds,
+  even a file loaded before (names can be edited, so they don't identify a palette). The picker
+  shows one tab per palette, opening on the last one used if it holds the row's current dot,
+  else the first that does, else the last one used (`pickerStartIndex`; "last used" lasts for
+  the page view).
 - **Picker (Q13.5)**: with a palette loaded, each mapping row's dropdown has "Pick from
   palette…" right below Auto (at the end of the list it sat below the fold), which opens a
   dialog: the design color being matched, and the dots laid out as
@@ -116,7 +123,7 @@ user can pick a blend by looking at the print.
   buttons (Tab, Enter); the dialog opens with the map focused, not a dot, so the Enter that
   chose "Pick from palette…" cannot pick one.
 - **Later, not now (Q13.6)**: recording a dot's real color (rankings and Print view from
-  real colors), several palettes, rotating the map, Bambu/Snapmaker palettes.
+  real colors), rotating the map, Bambu/Snapmaker palettes.
 
 ### Base color (Q3.4)
 Each object/part has a base design color, taken from the file's default extruder.
@@ -648,6 +655,6 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q13.1 | Palette source | Loaded from the palette print's 3MF: one dot per part (footprint, file color, spool or recipe); not a bundled image or layout |
 | Q13.2 | Finding a dot | Layout only, dots in the file's stored colors; no closest-match rings |
 | Q13.3 | Different spools | Match by color; dots needing a missing color are greyed out with the reason |
-| Q13.4 | Number of palettes | One, kept like the spools; loading another replaces it |
+| Q13.4 | Number of palettes | Several (up to 20, was one until 2026-10-10), kept like the spools; a Manage dialog adds, renames and removes them; one picker tab each |
 | Q13.5 | Picker | "Pick from palette…" below Auto in each mapping dropdown opens a dialog; a click pins (design, not asked) |
-| Q13.6 | Later | Real dot colors, several palettes, rotation, bbs palettes |
+| Q13.6 | Later | Real dot colors, rotation, bbs palettes |

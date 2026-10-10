@@ -1,12 +1,15 @@
-// The loaded palette print (spec Q13.4): one, kept in localStorage like the export settings.
-// Only its dots are stored (a few KB), not the file. Every storage access is guarded; a stored
-// palette that fails validation is ignored as a whole.
+// The loaded palette prints (spec Q13.4), kept in localStorage like the export settings. Only
+// their dots are stored (a few KB each), not the files. Every storage access is guarded; a
+// stored palette that fails validation is dropped as a whole, the others are kept.
 import { normalizeHex } from "../core";
 import { MAX_PALETTE_NAME, type PaletteDot, type PaletteIngredient, type PalettePrint } from "../doc/palettePrint";
 import { browserStorage, type KeyValueStorage } from "./exportSettings";
 
 export const PALETTE_KEY = "paintportplus.palette";
-const VERSION = 1;
+const VERSION = 2;
+/** Version 1 held a single palette as the record itself. */
+const VERSION_SINGLE = 1;
+export const MAX_PALETTES = 20;
 const MAX_DOTS = 1000;
 const MAX_INGREDIENTS = 16;
 
@@ -35,27 +38,37 @@ function readDot(x: unknown): PaletteDot | null {
   return { name: x.name, x: x.x, y: x.y, r: x.r, top: x.top, color: x.color, ingredients: ingredients as PaletteIngredient[], backdrop: x.backdrop };
 }
 
-/** The stored palette, or null when there is none or it is not valid. */
-export function loadPalettePrint(storage: KeyValueStorage | null = browserStorage()): PalettePrint | null {
-  if (!storage) return null;
+function readPalette(x: unknown): PalettePrint | null {
+  if (!isRec(x) || !isName(x.name) || !Array.isArray(x.dots) || x.dots.length < 1 || x.dots.length > MAX_DOTS) return null;
+  const dots = x.dots.map(readDot);
+  return dots.some((d) => d === null) ? null : { name: x.name, dots: dots as PaletteDot[] };
+}
+
+/** The stored palettes in the order they were added; empty when there are none. */
+export function loadPalettePrints(storage: KeyValueStorage | null = browserStorage()): PalettePrint[] {
+  if (!storage) return [];
   let o: unknown;
   try {
     const text = storage.getItem(PALETTE_KEY);
-    if (text === null) return null;
+    if (text === null) return [];
     o = JSON.parse(text);
   } catch {
-    return null;
+    return [];
   }
-  if (!isRec(o) || o.version !== VERSION || !isName(o.name) || !Array.isArray(o.dots) || o.dots.length < 1 || o.dots.length > MAX_DOTS) return null;
-  const dots = o.dots.map(readDot);
-  return dots.some((d) => d === null) ? null : { name: o.name, dots: dots as PaletteDot[] };
+  if (!isRec(o)) return [];
+  if (o.version === VERSION_SINGLE) {
+    const single = readPalette(o);
+    return single ? [single] : [];
+  }
+  if (o.version !== VERSION || !Array.isArray(o.palettes)) return [];
+  return o.palettes.slice(0, MAX_PALETTES).map(readPalette).filter((p): p is PalettePrint => p !== null);
 }
 
-/** Stores the palette (null removes it). Returns false when the browser refused (it then lasts only for this page view). */
-export function savePalettePrint(palette: PalettePrint | null, storage: PaletteStorage | null = browserStorage() as PaletteStorage | null): boolean {
+/** Stores the palettes (an empty list removes the key). Returns false when the browser refused (they then last only for this page view). */
+export function savePalettePrints(palettes: readonly PalettePrint[], storage: PaletteStorage | null = browserStorage() as PaletteStorage | null): boolean {
   if (!storage) return false;
   try {
-    if (palette) storage.setItem(PALETTE_KEY, JSON.stringify({ version: VERSION, name: palette.name, dots: palette.dots }));
+    if (palettes.length > 0) storage.setItem(PALETTE_KEY, JSON.stringify({ version: VERSION, palettes: palettes.map((p) => ({ name: p.name, dots: p.dots })) }));
     else storage.removeItem(PALETTE_KEY);
     return true;
   } catch {

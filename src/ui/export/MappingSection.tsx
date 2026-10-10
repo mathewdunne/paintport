@@ -21,12 +21,12 @@ interface MappingSectionProps {
   project: Project;
   settings: ExportSettings;
   model: MappingModel;
-  /** The loaded palette print, offered in every row's dropdown. */
-  palette: PalettePrint | null;
+  /** The loaded palette prints, offered in every row's dropdown. */
+  palettes: readonly PalettePrint[];
 }
 
 /** One compact row per used design color: its swatch, a dropdown for the target, and the color it prints as. */
-export function MappingSection({ project, settings, model, palette }: MappingSectionProps) {
+export function MappingSection({ project, settings, model, palettes }: MappingSectionProps) {
   const rows = useMemo(
     () => mappingRows(project, settings, model),
     // project.palette and project.mapping are replaced on change, and `model` is recomputed then.
@@ -42,7 +42,7 @@ export function MappingSection({ project, settings, model, palette }: MappingSec
           row={row}
           active={active}
           allowMix={settings.allowMix}
-          palette={palette}
+          palettes={palettes}
           onChoose={(pin) => project.setPin(row.state, pin)}
         />
       ))}
@@ -54,12 +54,12 @@ interface MappingRowViewProps {
   row: MappingRow;
   active: readonly MixSlot[];
   allowMix: boolean;
-  palette: PalettePrint | null;
+  palettes: readonly PalettePrint[];
   /** A pin, or null for Auto. */
   onChoose: (pin: MappingPin | null) => void;
 }
 
-function MappingRowView({ row, active, allowMix, palette, onChoose }: MappingRowViewProps) {
+function MappingRowView({ row, active, allowMix, palettes, onChoose }: MappingRowViewProps) {
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   // Ranking the blends costs a little per row, so only the open dropdown does it.
@@ -94,7 +94,7 @@ function MappingRowView({ row, active, allowMix, palette, onChoose }: MappingRow
           <SelectItem value={AUTO_VALUE} className="text-xs">
             <AutoOption auto={row.auto} />
           </SelectItem>
-          {palette && (
+          {palettes.length > 0 && (
             <SelectItem value={PALETTE_VALUE} className="text-xs">
               <Palette className="size-3.5 text-muted-foreground" />
               {strings.export.pickFromPalette}
@@ -120,11 +120,11 @@ function MappingRowView({ row, active, allowMix, palette, onChoose }: MappingRow
           )}
         </SelectContent>
       </Select>
-      {palette && (
+      {palettes.length > 0 && (
         <PalettePicker
           open={picking}
           onOpenChange={setPicking}
-          palette={palette}
+          palettes={palettes}
           designColor={row.designColor}
           resolved={row.resolved}
           active={active}

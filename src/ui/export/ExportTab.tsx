@@ -13,7 +13,7 @@ import { Section } from "./Section";
 import { SpoolSection } from "./SpoolSection";
 import { printerCountOf } from "./spoolOps";
 import { TargetSection } from "./TargetSection";
-import { usePalettePrint } from "./usePalettePrint";
+import { usePalettePrints } from "./usePalettePrints";
 
 interface ExportTabProps {
   project: Project | null;
@@ -29,7 +29,7 @@ interface ExportTabProps {
 export function ExportTab({ project, settings, onSettings, mapping, onExport, exporting }: ExportTabProps) {
   const hasSpool = activeSpools(settings.spools, printerCountOf(settings)).length > 0;
   const blocked = !project ? strings.export.noProject : !hasSpool ? strings.export.noSpoolOn : null;
-  const { palette, setPalette } = usePalettePrint();
+  const { palettes, setPalettes } = usePalettePrints();
   return (
     <div className="space-y-4">
       <TargetSection settings={settings} onSettings={onSettings} />
@@ -45,11 +45,11 @@ export function ExportTab({ project, settings, onSettings, mapping, onExport, ex
         <Switch id="allow-mix" checked={settings.allowMix} onCheckedChange={(allowMix) => onSettings((s) => ({ ...s, allowMix }))} />
       </div>
       <Section title={strings.export.palette} hint={strings.export.paletteHint}>
-        <PaletteSection palette={palette} onPalette={setPalette} />
+        <PaletteSection palettes={palettes} onPalettes={setPalettes} />
       </Section>
       <Separator />
       <Section title={strings.export.mapping} hint={strings.export.mappingHint}>
-        {project && mapping ? <MappingSection project={project} settings={settings} model={mapping} palette={palette} /> : <p className="text-xs text-muted-foreground">{strings.panel.exportEmpty}</p>}
+        {project && mapping ? <MappingSection project={project} settings={settings} model={mapping} palettes={palettes} /> : <p className="text-xs text-muted-foreground">{strings.panel.exportEmpty}</p>}
       </Section>
       {project && mapping && <ExportWarnings project={project} warnings={mapping.warnings} />}
       <div className="space-y-1.5">

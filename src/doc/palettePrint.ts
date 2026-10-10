@@ -139,3 +139,15 @@ export function dotIsCurrent(choice: DotChoice, resolved: ResolvedTarget): boole
   if (resolved.kind === "blend") return samePin(choice.pin, { kind: "blend", components: resolved.components });
   return false;
 }
+
+/**
+ * The palette the picker opens on (spec Q13.4): the last one used when it holds the row's
+ * current dot, else the first that does, else the last one used (clamped to the list).
+ */
+export function pickerStartIndex(palettes: readonly PalettePrint[], last: number, active: readonly MixSlot[], allowMix: boolean, resolved: ResolvedTarget): number {
+  const lastIndex = Math.min(Math.max(last, 0), Math.max(palettes.length - 1, 0));
+  const holds = (p: PalettePrint) => p.dots.some((d) => !d.backdrop && dotIsCurrent(dotChoice(d, active, allowMix), resolved));
+  if (palettes[lastIndex] && holds(palettes[lastIndex])) return lastIndex;
+  const first = palettes.findIndex(holds);
+  return first >= 0 ? first : lastIndex;
+}
