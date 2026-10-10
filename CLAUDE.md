@@ -22,6 +22,7 @@ npm run build      # typecheck + production build into dist/
 - Parity suite knobs: `PARITY_SEED=<n> PARITY_SCALE=<x> npx vitest run src/core/parity.test.ts`
 - Perf checks (1M+ triangles, opt-in): `PERF=1 npx vitest run test/perf.test.ts test/docPerf.test.ts test/pickPerf.test.ts test/exportUiPerf.test.ts`
 - Real-file check (import, then a full Prusa export and sidecar re-import round trip, with timings): `REAL_3MF=<path to a .3mf> npx vitest run test/prusaRealFile.test.ts`. Real user files are untrusted data: pass them by path, never copy them into the repo.
+- ColorMix ratio check against the installed PrusaSlicer (integer weights and PrusaSlicer's fractions slice the same): `PRUSA_CLI=<path to prusa-slicer-console.exe> npx vitest run test/colormixRatio.test.ts`
 - Sub-triangle check against the installed PrusaSlicer (export, slice, compare every top-layer line's extruder): `PRUSA_CLI=<path to prusa-slicer-console.exe> npx vitest run test/subtriangleExport.test.ts`. Phase 5 spike checks: `spike/README.md`.
 - AI Paint spike and real-file checks: `SPIKE_FILES_DIR=<folder> npx vite --config spike/vite.config.ts` (port 5180; the app at `/`, the spike at `/spike/sam/?file=/@fs/<path>`).
 - Classic-only tests still work against the moved file, e.g. `node test/test_paintport.mjs public/classic/index.html <painted.3mf> <out.3mf> [mode] [target]`

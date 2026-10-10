@@ -261,19 +261,36 @@ function filePhysicalColors(source: Pick<SourceInfo, "filaments">): Map<number, 
 }
 
 /**
+ * A recipe's ratios as integer weights 1..100. Integers 1..100 stay as they are; anything else
+ * becomes rounded percent shares, since PrusaSlicer writes fractions that sum to 1 (0.85 and
+ * 0.15000000000000002) and reads any positive weights the same way. Null if a ratio is not a
+ * positive number or rounds to 0 %.
+ */
+function recipeWeights(ratios: readonly number[]): number[] | null {
+  if (ratios.some((r) => !Number.isFinite(r) || r <= 0)) return null;
+  if (ratios.every((r) => Number.isInteger(r) && r <= 100)) return [...ratios];
+  const sum = ratios.reduce((s, r) => s + r, 0);
+  const percent = ratios.map((r) => Math.round((100 * r) / sum));
+  return percent.some((r) => r < 1) ? null : percent;
+}
+
+/**
  * An imported ColorMix recipe, if the user's spools still reproduce it: every component's
  * extruder is an active spool whose color equals the file's physical color for that extruder.
- * Needs `allowMix` and at least two components with distinct extruders and integer ratios
- * 1..100 (anything else falls back to Auto). Ratios are reduced like a pin's (2:2 is 1:1).
+ * Needs `allowMix` and at least two components with distinct extruders and positive ratios
+ * (anything else falls back to Auto). Ratios become integer weights (`recipeWeights`) and are
+ * reduced like a pin's (2:2 is 1:1, 0.85:0.15 is 17:3).
  */
 function resolveHint(mix: readonly MixComponentRef[] | undefined, color: string, fileColors: ReadonlyMap<number, string>, active: readonly MixSlot[], allowMix: boolean): BlendTarget | null {
   if (!allowMix || !mix || mix.length < 2) return null;
+  const weights = recipeWeights(mix.map((m) => m.ratio));
+  if (!weights) return null;
   const components: MixComponent[] = [];
-  for (const m of mix) {
-    if (!Number.isInteger(m.ratio) || m.ratio < 1 || m.ratio > 100 || components.some((c) => c.slot === m.extruder)) return null;
+  for (const [i, m] of mix.entries()) {
+    if (components.some((c) => c.slot === m.extruder)) return null;
     const spool = active.find((s) => s.slot === m.extruder);
     if (!spool || fileColors.get(m.extruder) !== spool.color) return null;
-    components.push({ slot: m.extruder, color: spool.color, ratio: m.ratio });
+    components.push({ slot: m.extruder, color: spool.color, ratio: weights[i] });
   }
   components.sort((a, b) => a.slot - b.slot);
   const ratios = reduceRatios(components);

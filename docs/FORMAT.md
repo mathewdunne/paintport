@@ -87,6 +87,11 @@ Minimal schema:
 ```
 
 - Painting states may point directly at virtual IDs.
+- `ratio` is a relative weight. PrusaSlicer's own projects store fractions that sum to 1,
+  float noise included (`0.85`, `0.15000000000000002`); PaintPort writes reduced integers
+  (`17`, `3`). PrusaSlicer 2.9.6 slices both forms identically (checked with the CLI by
+  `test/colormixRatio.test.ts`; 85/15, 50/50 and 35/50/15 tried). On import PaintPort turns
+  non-integer ratios into rounded percent shares.
 - **Virtual IDs must start above the printer's physical extruder count** (INDX 8T → 9+).
   On collision, PrusaSlicer's `remap_full_spectrum_on_import` shifts *painting states
   only* — not the volume's base extruder — so a colliding ID puts the whole body on the
@@ -128,7 +133,9 @@ deliberately ships no `Slic3r_PE.config` (no preset-override risk).
 - Bambu production-extension files keep geometry in `3D/Objects/*.model`, referenced via
   `<component p:path=…>`; components can nest one level deeper.
 - 3MF transforms are 12-value row-major 4×3 (`[R | T]`), point × matrix.
-- ColorMix ratios PrusaSlicer offers: 1:1, 1:3, 3:1, 1:1:1. PaintPort predicts blend
+- ColorMix ratios PaintPort's Auto mapping and blend list offer: 1:1, 1:3, 3:1, 1:1:1.
+  PrusaSlicer allows any percentages (85/15, 35/50/15, ...); imported recipes keep theirs.
+  PaintPort predicts blend
   colors with a Yule–Nielsen approximation (n = 2) — the calibrated model in PrusaSlicer
   is more accurate; treat predictions as a preview.
 

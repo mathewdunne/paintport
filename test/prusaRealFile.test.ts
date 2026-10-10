@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { load3MF, zipAll } from "../src/core";
 import { buildExport } from "../src/doc/export";
 import { importProject } from "../src/doc/importProject";
-import { applyFileSpools, fileSpools } from "../src/doc/mapping";
+import { applyFileSpools, fileSpools, resolveMapping } from "../src/doc/mapping";
 import { createProject } from "../src/doc/project";
 import { defaultExportSettings } from "../src/persist/exportSettings";
 
@@ -83,6 +83,8 @@ describe.skipIf(!path)("real PrusaSlicer project (REAL_3MF)", () => {
     settings.target = "prusa";
     settings.printerCount.prusa = 4;
     settings.spools = applyFileSpools(settings.spools, fileSpools(project.source), 4);
+    const resolved = resolveMapping(project, { spools: settings.spools, printerCount: 4, allowMix: true });
+    for (const [state, target] of resolved) if (project.palette[state].mix) expect(target.source, `state ${state}`).toBe("hint");
     const exported = buildExport(project, settings, { date: "2026-10-08" });
     const exportTime = lap();
     const zipped = await zipAll(exported.entries);

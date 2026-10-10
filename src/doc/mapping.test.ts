@@ -415,14 +415,36 @@ describe("resolveMapping", () => {
       expect(resolveMapping(p, settings(s)).get(2)!.source).toBe("auto");
     });
 
-    it("falls back to Auto for ratios that are not integers 1..100", () => {
-      for (const ratio of [0, 0.5, 1.5, 101, -1, NaN]) {
+    it("falls back to Auto for ratios that are not positive numbers or round to 0 %", () => {
+      for (const ratio of [0, -1, NaN, Infinity, 0.004]) {
         const p = createProject(makeModel(cubeMesh(), {
           filaments: [{ color: "#FF0000" }, { color: "#0000FF" }, { color: "#800080", mix: [{ extruder: 1, ratio }, { extruder: 2, ratio: 1 }] }],
           paints: [leaf(3)],
         }));
         expect(resolveMapping(p, settings(matchingSpools())).get(2)!.source, `ratio ${ratio}`).toBe("auto");
       }
+    });
+
+    it("turns PrusaSlicer's fractional ratios and other non-integer weights into percent shares", () => {
+      const spools = matchingSpools();
+      spools[2].on = true;
+      spools[2].color = "#00FF00";
+      const ratiosOf = (mix: [number, number][]) => {
+        const p = createProject(makeModel(cubeMesh(), {
+          filaments: [{ color: "#FF0000" }, { color: "#0000FF" }, { color: "#00FF00" }, { color: "#800080", mix: mix.map(([extruder, ratio]) => ({ extruder, ratio })) }],
+          paints: [leaf(4)],
+        }));
+        const t = resolveMapping(p, settings(spools)).get(2)!;
+        expect(t.source, JSON.stringify(mix)).toBe("hint");
+        return t.kind === "blend" ? t.components.map((c) => [c.slot, c.ratio]) : null;
+      };
+      expect(ratiosOf([[1, 0.85], [2, 0.15000000000000002]])).toEqual([[1, 17], [2, 3]]);
+      expect(ratiosOf([[1, 0.5], [2, 0.5]])).toEqual([[1, 1], [2, 1]]);
+      // Components come sorted by slot whatever the file's order.
+      expect(ratiosOf([[3, 0.35], [2, 0.5], [1, 0.15]])).toEqual([[1, 3], [2, 10], [3, 7]]);
+      expect(ratiosOf([[1, 1 / 3], [2, 1 / 3], [3, 1 / 3]])).toEqual([[1, 1], [2, 1], [3, 1]]);
+      expect(ratiosOf([[1, 1.5], [2, 1]])).toEqual([[1, 3], [2, 2]]);
+      expect(ratiosOf([[1, 101], [2, 1]])).toEqual([[1, 99], [2, 1]]);
     });
 
     it("reduces a recipe's ratios, so 2:2 is the same blend as 1:1", () => {
