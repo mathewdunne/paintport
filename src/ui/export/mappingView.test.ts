@@ -81,6 +81,11 @@ describe("mapping rows", () => {
     expect(pinName(row.dormant!)).toBe("Spool 4");
   });
 
+  it("names a blend by its parts' percent shares", () => {
+    expect(pinName({ kind: "blend", components: [{ slot: 3, ratio: 17 }, { slot: 4, ratio: 3 }] })).toBe("S3 85% + S4 15%");
+    expect(pinName({ kind: "blend", components: [{ slot: 2, ratio: 10 }, { slot: 3, ratio: 3 }, { slot: 5, ratio: 7 }] })).toBe("S2 50% + S3 15% + S5 35%");
+  });
+
   it("a blend pin is dormant while ColorMix is off, and a plain Auto row has no pin", () => {
     const p = project();
     const pin = { kind: "blend", components: [{ slot: 3, ratio: 1 }, { slot: 4, ratio: 1 }] } as const;

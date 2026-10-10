@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestMix, deltaE, normalizeHex, predictMix, topMixes } from "../core";
+import { bestMix, CLASSIC_MIX_RATIOS, deltaE, MIX_RATIOS, normalizeHex, predictMix, topMixes } from "../core";
 import { cubeMesh, leaf, makeModel, split3, tree } from "../../test/support/docFixtures";
 import { loadClassicUi } from "../../test/support/classicUi";
 import { makeRng } from "../../test/support/prng";
@@ -42,7 +42,7 @@ describe("tables ported from the classic tool", () => {
 describe("bestOption", () => {
   const label = (t: ReturnType<typeof bestOption>) => (t === null ? null : t.kind === "spool" ? "p" + t.slot : "mix");
 
-  it("agrees with the classic bestOption on random inputs", () => {
+  it("agrees with the classic bestOption on random inputs, limited to the classic ratios", () => {
     const rng = makeRng(SEED, "bestOption");
     let blends = 0;
     for (let i = 0; i < 400; i++) {
@@ -54,7 +54,7 @@ describe("bestOption", () => {
       const color = rng.bool(0.3) ? rng.pick(pool) : randomColor(rng);
       const allowMix = rng.bool(0.7);
       const expected = classic.bestOption({ color }, active, allowMix);
-      const actual = bestOption(color, active, allowMix);
+      const actual = bestOption(color, active, allowMix, CLASSIC_MIX_RATIOS);
       expect(label(actual), `case ${i}: ${color} ${JSON.stringify(active)} mix=${allowMix}`).toBe(expected);
       if (expected === "mix") {
         blends++;
@@ -88,9 +88,30 @@ describe("bestOption", () => {
     expect(t.deltaE).toBeCloseTo(deltaE("#FF0000", "#FE0000"), 10);
   });
 
-  it("blendCandidates is topMixes", () => {
+  it("finds every recipe of a printed full-spectrum palette (85/15 .. 15/85, 50 % plus 15/35 .. 35/15)", () => {
+    // White, cyan, magenta and yellow as in a real palette print.
+    const active = [{ slot: 2, color: "#EBF7FF" }, { slot: 3, color: "#08ABFB" }, { slot: 4, color: "#D93B90" }, { slot: 5, color: "#F9ED3D" }];
+    const colorOf = new Map(active.map((s) => [s.slot, s.color]));
+    const recipes = [
+      [[3, 17], [4, 3]], [[3, 3], [4, 1]], [[3, 1], [4, 1]], [[3, 1], [4, 3]], [[3, 3], [4, 17]],
+      [[2, 1], [5, 3]], [[2, 3], [5, 17]],
+      [[2, 10], [3, 3], [5, 7]], [[2, 2], [3, 1], [5, 1]], [[2, 10], [3, 7], [5, 3]],
+      [[2, 10], [4, 7], [5, 3]], [[2, 1], [3, 1], [4, 1]],
+    ];
+    for (const recipe of recipes) {
+      const target = predictMix(recipe.map(([slot, ratio]) => ({ color: colorOf.get(slot)!, ratio })));
+      const t = bestOption(target, active, true)!;
+      expect(t.kind === "blend" && t.components.map((c) => [c.slot, c.ratio]), JSON.stringify(recipe)).toEqual(recipe);
+      expect(blendCandidates(target, active)[0].components.map((c) => [c.slot, c.ratio])).toEqual(recipe);
+    }
+    // The classic ratios alone cannot reach 85/15.
+    const t = bestOption(predictMix([{ color: "#08ABFB", ratio: 17 }, { color: "#D93B90", ratio: 3 }]), active, true, CLASSIC_MIX_RATIOS)!;
+    expect(t.kind === "blend" && t.components.map((c) => c.ratio)).not.toEqual([17, 3]);
+  });
+
+  it("blendCandidates is topMixes with the full ratio set", () => {
     const cmy = [{ slot: 1, color: "#00FFFF" }, { slot: 2, color: "#FF00FF" }, { slot: 3, color: "#FFFF00" }];
-    expect(blendCandidates("#8000FF", cmy)).toEqual(topMixes("#8000FF", cmy, 6));
+    expect(blendCandidates("#8000FF", cmy)).toEqual(topMixes("#8000FF", cmy, 6, MIX_RATIOS));
     expect(blendCandidates("#8000FF", cmy, 2)).toHaveLength(2);
     expect(blendCandidates("#8000FF", [cmy[0]])).toEqual([]);
   });

@@ -231,7 +231,7 @@ export const strings = {
     noSpool: "no spool on",
     spoolName: (slot: number) => `Spool ${slot}`,
     dormantPin: (name: string) => `pinned ${name} is off`,
-    blendParts: (ratio: number, slot: number) => `${ratio}×S${slot}`,
+    blendParts: (percent: number, slot: number) => `S${slot} ${percent}%`,
     groupSpools: "Spools",
     groupBlends: "Blends",
     deltaE: (d: number) => `ΔE ${d.toFixed(1)}`,

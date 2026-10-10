@@ -8,8 +8,8 @@
 // Spools are app settings, not project data; pins live on the Project. This module only
 // computes: it reads a project and the current settings and returns plain data.
 import {
-  bestMix, deltaE, normalizeHex, predictMix, topMixes,
-  type BuildTarget, type MixCandidate, type MixComponent, type MixComponentRef, type MixFormat, type MixSlot,
+  bestMix, deltaE, MIX_RATIOS, normalizeHex, predictMix, topMixes,
+  type BuildTarget, type MixCandidate, type MixComponent, type MixComponentRef, type MixFormat, type MixRatioSet, type MixSlot,
 } from "../core";
 import type { PaintFieldView, State } from "./paintField";
 import { collectLeafStates, INTERNAL_DIALECT } from "./paintTree";
@@ -218,9 +218,10 @@ const candidateTarget = (c: MixCandidate): BlendTarget => ({ kind: "blend", comp
 /**
  * Auto: the nearest active spool, or the best blend when its predicted ΔE is smaller (an exact
  * tie keeps the spool, which is the simpler print; a blend needs at least two active spools
- * and `allowMix`). Null without any active spool. Port of the classic `bestOption`.
+ * and `allowMix`). Null without any active spool. Port of the classic `bestOption`, which only
+ * tried `CLASSIC_MIX_RATIOS`; the app tries the full-spectrum set `MIX_RATIOS`.
  */
-export function bestOption(color: string, active: readonly MixSlot[], allowMix: boolean): TargetChoice | null {
+export function bestOption(color: string, active: readonly MixSlot[], allowMix: boolean, ratios: MixRatioSet = MIX_RATIOS): TargetChoice | null {
   let best: { d: number; spool: MixSlot } | null = null;
   for (const spool of active) {
     const d = deltaE(color, spool.color);
@@ -228,7 +229,7 @@ export function bestOption(color: string, active: readonly MixSlot[], allowMix: 
   }
   if (!best) return null;
   if (allowMix && active.length >= 2) {
-    const mix = bestMix(color, active as MixSlot[]);
+    const mix = bestMix(color, active as MixSlot[], ratios);
     if (mix && mix.deltaE < best.d) return candidateTarget(mix);
   }
   return spoolTarget(best.spool, color);
@@ -236,7 +237,7 @@ export function bestOption(color: string, active: readonly MixSlot[], allowMix: 
 
 /** The ColorMix candidates for the dropdown: the best `n` blends by ΔE (empty with fewer than two active spools). */
 export function blendCandidates(color: string, active: readonly MixSlot[], n = 6): MixCandidate[] {
-  return topMixes(color, active as MixSlot[], n);
+  return topMixes(color, active as MixSlot[], n, MIX_RATIOS);
 }
 
 /** A pin's target now, or null if the pin cannot be honored (slot off or out of range, a blend component missing, blends not allowed). */

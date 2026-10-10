@@ -21,7 +21,10 @@ export { applyTransform, composeTransform, parseTransform, type Transform } from
 export { VOLUME_TYPES, load3MF, load3MFFiles } from "./threemf/load";
 export { build3MF, buildPrusa3MF } from "./threemf/build";
 export { deltaE, hexToRgb, linearToSrgb, normalizeHex, rgbToHex, rgbToLab, srgbToLinear, type Lab, type Rgb } from "./color";
-export { bestMix, predictMix, topMixes, type MixCandidate, type MixComponent, type MixInput, type MixSlot } from "./mix";
+export {
+  bestMix, CLASSIC_MIX_RATIOS, MIX_RATIOS, predictMix, topMixes,
+  type MixCandidate, type MixComponent, type MixInput, type MixRatioSet, type MixSlot,
+} from "./mix";
 export type {
   Build3MFPlan, Build3MFResult, BuildTarget, Filament, MixComponentRef, MixFormat, Model, ModelObject,
   PartRange, PhysicalSlot, SourceIdentity, VirtualExtruder, VolumeType,

@@ -4,7 +4,7 @@
 // here run against a synthetic model instead of a real fixture.
 import { describe, expect, it } from "vitest";
 import {
-  bestMix, build3MF, buildPrusa3MF, collectStates, emitPaintTree, load3MF, topMixes, unzipAll, zipAll,
+  bestMix, build3MF, buildPrusa3MF, CLASSIC_MIX_RATIOS, collectStates, emitPaintTree, load3MF, MIX_RATIOS, topMixes, unzipAll, zipAll,
   type Build3MFPlan, type Model, type PaintDialect, type VirtualExtruder,
 } from "./index";
 
@@ -133,6 +133,15 @@ describe("topMixes / bestMix (from test_paintport.mjs)", () => {
   });
   it("returns null without slots", () => {
     expect(bestMix("#123456", [])).toBeNull();
+  });
+  it("uses the classic ratios unless given a ratio set; the full set extends them", () => {
+    expect(topMixes("#0000FF", slots5, 100)).toEqual(topMixes("#0000FF", slots5, 100, CLASSIC_MIX_RATIOS));
+    const key = (r: readonly number[]) => r.join(":");
+    for (const arity of ["pairs", "triples"] as const) {
+      const full = new Set(MIX_RATIOS[arity].map(key));
+      for (const r of CLASSIC_MIX_RATIOS[arity]) expect(full.has(key(r)), key(r)).toBe(true);
+    }
+    expect(topMixes("#0000FF", slots5, 1000, MIX_RATIOS).length).toBeGreaterThan(topMixes("#0000FF", slots5, 1000).length);
   });
 });
 

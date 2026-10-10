@@ -45,8 +45,11 @@ export function printColorTable(paletteSize: number, resolved: ReadonlyMap<State
 
 // --- dropdown rows --------------------------------------------------------------------------
 
-const blendParts = (components: readonly { slot: number; ratio: number }[]): string =>
-  components.map((c) => strings.export.blendParts(c.ratio, c.slot)).join(" + ");
+/** A blend's parts as rounded percent shares, the way PrusaSlicer lists them (17:3 is 85 % and 15 %). */
+const blendParts = (components: readonly { slot: number; ratio: number }[]): string => {
+  const sum = components.reduce((s, c) => s + c.ratio, 0);
+  return components.map((c) => strings.export.blendParts(Math.round((100 * c.ratio) / sum), c.slot)).join(" + ");
+};
 
 /** How a mapping row names its target: a spool or a blend's parts. */
 export function targetName(target: ResolvedTarget): string {
