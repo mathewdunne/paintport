@@ -6,6 +6,8 @@ export const strings = {
     importHint: "Import a 3MF, STL or OBJ file",
     classic: "Classic",
     classicHint: "Open the original single-file PaintPort",
+    github: "GitHub",
+    githubHint: "Open the project on GitHub",
     undo: "Undo",
     undoHint: "Undo (Ctrl+Z)",
     redo: "Redo",

@@ -66,6 +66,12 @@ export function Header({ project, onImportFiles, canImport, canStartNew, onNew, 
             <ExternalLink />
           </a>
         </Button>
+        <Button variant="ghost" size="sm" asChild>
+          <a href="https://github.com/mathewdunne/paintport" target="_blank" rel="noopener noreferrer" title={strings.header.githubHint}>
+            {strings.header.github}
+            <ExternalLink />
+          </a>
+        </Button>
         <SettingsMenu />
       </div>
     </header>
