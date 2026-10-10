@@ -8,7 +8,8 @@ import { clampActiveState, remapActiveState } from "./activeColor";
 
 /**
  * The tool, active color, brush radius and fill settings the Paint tab edits and the paint tools use.
- * The slider values and the smart fill Advanced section's open state are remembered across page views.
+ * The slider values, "Split triangles" and the smart fill Advanced section's open state are remembered
+ * across page views.
  *
  * The active color is a palette index, and indices move when a color is deleted (or that is undone
  * or redone): the hook follows the document's palette changes so that the active color stays on
@@ -22,6 +23,7 @@ export function usePaintSettings(project: Project | null) {
     activeState: 1,
     radius: initial.radius,
     paintThrough: false,
+    splitTriangles: initial.splitTriangles,
     smartAngle: initial.smartAngle,
     smartScale: initial.smartScale,
     smartScaleSensitivity: initial.smartScaleSensitivity,
@@ -31,10 +33,10 @@ export function usePaintSettings(project: Project | null) {
   const step = useCallback((direction: -1 | 1) => setSettings((s) => ({ ...s, radius: stepRadius(s.radius, direction) })), []);
   const resetSmartFill = useCallback(() => setSettings((s) => ({ ...s, smartAngle: DEFAULT_SMART_ANGLE, smartScale: DEFAULT_SMART_SCALE, smartScaleSensitivity: undefined })), []);
 
-  const { radius, smartAngle, smartScale, smartScaleSensitivity } = settings;
+  const { radius, smartAngle, smartScale, smartScaleSensitivity, splitTriangles } = settings;
   useEffect(() => {
-    savePaintPrefs({ radius, smartAngle, smartScale, smartScaleSensitivity, fillAdvancedOpen });
-  }, [radius, smartAngle, smartScale, smartScaleSensitivity, fillAdvancedOpen]);
+    savePaintPrefs({ radius, smartAngle, smartScale, smartScaleSensitivity, fillAdvancedOpen, splitTriangles });
+  }, [radius, smartAngle, smartScale, smartScaleSensitivity, fillAdvancedOpen, splitTriangles]);
 
   // A new project starts with its first color selected.
   useEffect(() => {

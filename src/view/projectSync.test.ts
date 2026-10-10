@@ -6,6 +6,7 @@ import { cubeMesh, leaf, makeModel } from "../../test/support/docFixtures";
 import { ColorSurface } from "./colorSurface";
 import { buildObjectGeometry, setTriangleHighlight, type ObjectGeometry } from "./objectGeometry";
 import { syncViewerToProject, type SyncTarget } from "./projectSync";
+import { walkAtlas } from "./treeAtlas";
 import { projectToScene } from "./projectScene";
 import type { ViewScene } from "./viewScene";
 
@@ -139,6 +140,71 @@ function twoPartProject() {
   }));
   project.addColor("#0000FF"); // state 3, unused so far
   return project;
+}
+
+describe("sub-triangle trees", () => {
+  // A 10 x 10 mm quad of two triangles, one part with base color 1.
+  function quadProject() {
+    const project = createProject(makeModel({ vertices: [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0], tris: [0, 1, 2, 0, 2, 3] }, {
+      filaments: [{ color: "#FF0000" }, { color: "#00FF00" }],
+      parts: [{ firstTri: 0, triCount: 2, extruder: 1, ...PART }],
+    }));
+    project.addColor("#00FF00"); // state 2
+    project.addColor("#0000FF"); // state 3
+    return project;
+  }
+
+  it("draws a split triangle from the atlas, with the part base in its state attribute", () => {
+    const project = quadProject();
+    project.paintSphere(0, [8, 2, 0], 1.5, 2, { split: { limit: 0.5 } });
+    const scene = projectToScene(project);
+    const { geos, surface } = realSurface(scene);
+    expect(Array.from(geos[0].vertexStates)).toEqual([1, 1, 1, 1, 1, 1]);
+    const root = geos[0].treeRoots[0];
+    expect(root).toBeGreaterThan(0);
+    expect(Array.from(geos[0].treeRoots.slice(0, 3))).toEqual([root, root, root]);
+    expect(Array.from(geos[0].treeRoots.slice(3))).toEqual([0, 0, 0]);
+    const word = walkAtlas(surface.atlas.words, root - 1, [1 - 0.8, 0.6, 0.2]); // (8, 2) in triangle 0
+    expect(word & 0xffff).toBe(2);
+  });
+
+  it("follows brush dabs, a whole repaint, undo and a base change", () => {
+    const project = quadProject();
+    const scene = projectToScene(project);
+    const { geos, surface } = realSurface(scene);
+    syncViewerToProject(project, scene, surface);
+    project.paintSphere(0, [8, 2, 0], 1.5, 2, { split: { limit: 0.5 } });
+    expect(geos[0].treeRoots[0]).toBeGreaterThan(0);
+    expect(geos[0].vertexStates[0]).toBe(1);
+    project.paintTriangles(0, [0], 3);
+    expect(geos[0].treeRoots[0]).toBe(0);
+    expect(geos[0].vertexStates[0]).toBe(3);
+    project.undo();
+    expect(geos[0].treeRoots[0]).toBeGreaterThan(0);
+    expect(geos[0].vertexStates[0]).toBe(1);
+    project.setObjectBaseColor(0, 3);
+    expect(geos[0].vertexStates[0]).toBe(3); // the split triangle's unpainted pieces follow the base
+    expect(geos[0].vertexStates[3]).toBe(3);
+  });
+
+  it("re-flattens every tree when colors are renumbered", () => {
+    const project = quadProject();
+    project.paintSphere(0, [8, 2, 0], 1.5, 3, { split: { limit: 0.5 } });
+    const scene = projectToScene(project);
+    const { geos, surface } = realSurface(scene);
+    syncViewerToProject(project, scene, surface);
+    project.deleteColor(2, 1); // state 3 becomes 2
+    const word = walkAtlas(surface.atlas.words, geos[0].treeRoots[0] - 1, [0.2, 0.6, 0.2]);
+    expect(word & 0xffff).toBe(2);
+  });
+});
+
+function realSurface(scene: ViewScene) {
+  const surface = new ColorSurface();
+  surface.setScene(scene);
+  const geos = scene.objects.map((o) => buildObjectGeometry(o));
+  geos.forEach((g, i) => surface.add(i, g));
+  return { surface, geos };
 }
 
 describe("viewer color path", () => {

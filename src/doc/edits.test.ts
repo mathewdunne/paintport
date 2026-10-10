@@ -296,10 +296,9 @@ describe("palette operations", () => {
 
   it("counts triangles per color, painted and base", () => {
     const p = fixture();
-    // painted: tri 0 -> 1, tri 1 -> 2, tri 2 (dominant 3) and tri 3 -> 3; base 2 for the other 8
-    expect(p.colorUsage()).toEqual([{ painted: 0, base: 0 }, { painted: 1, base: 0 }, { painted: 1, base: 8 }, { painted: 2, base: 0 }]);
-    const total = p.colorUsage().reduce((n, u) => n + u.painted + u.base, 0);
-    expect(total).toBe(12);
+    // painted: tri 0 -> 1, tri 1 -> 2, tri 2 (a tree of 1 and 3) and tri 3 -> 3; base 2 for the other 8.
+    // A split triangle counts once for every color its pieces show.
+    expect(p.colorUsage()).toEqual([{ painted: 0, base: 0 }, { painted: 2, base: 0 }, { painted: 1, base: 8 }, { painted: 2, base: 0 }]);
   });
 });
 

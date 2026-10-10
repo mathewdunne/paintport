@@ -76,3 +76,17 @@ export function sqDistPointTriangle(
   const dx = apx - abx * v - acx * w, dy = apy - aby * v - acy * w, dz = apz - abz * v - acz * w;
   return dx * dx + dy * dy + dz * dz;
 }
+
+/** `sqDistPointTriangle` for a triangle given by its corners a, b, c. */
+export function sqDistPointCorners(
+  px: number, py: number, pz: number,
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  cx: number, cy: number, cz: number,
+): number {
+  const c = CORNER_SCRATCH;
+  c[0] = ax; c[1] = ay; c[2] = az; c[3] = bx; c[4] = by; c[5] = bz; c[6] = cx; c[7] = cy; c[8] = cz;
+  return sqDistPointTriangle(c, CORNERS, 0, px, py, pz);
+}
+const CORNER_SCRATCH = new Float64Array(9);
+const CORNERS = Int32Array.of(0, 1, 2);

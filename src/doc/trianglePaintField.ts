@@ -1,6 +1,7 @@
 import { emitPaintTree, remapPaintString, type PaintDialect } from "../core";
-import type { BrushOpts, EditableMesh, EditRecord, PaintField, State, Vec3 } from "./paintField";
+import type { BrushOpts, EditableMesh, EditRecord, PaintField, Region, State, Vec3 } from "./paintField";
 import { INTERNAL_DIALECT, remapTree } from "./paintTree";
+import { addLeafStates, emitTree, isLeaf, paintSphereTree, paintTreeLeaves, parseTree, stateAtBary, treeDominant, type TreeNode } from "./splitTree";
 import { sqDistPointTriangle } from "./triangleMath";
 
 export { isSplitTree } from "./paintTree";
@@ -47,14 +48,14 @@ const asDiff = (e: EditRecord): DiffEdit => {
 };
 
 /**
- * One design state per triangle (spec 5.3).
+ * One design state per triangle, plus sub-triangle trees (spec 5.3, Q12).
  *
- * `states` holds design states, 0 = unpainted. Triangles that carried sub-triangle detail
- * in the source keep their paint tree in `preserved`, rewritten into design states and
- * emitted in the internal dialect ("bbs", see paintTree.ts); `states[t]` is then the
- * tree's dominant state, which is what the viewer shows. Painting a triangle sets its
- * state and drops its tree; `remap` rewrites the trees' leaves and recomputes the
- * dominant state.
+ * `states` holds design states, 0 = unpainted. Split triangles keep their paint tree in
+ * `preserved`, in design states and the internal dialect ("bbs", see paintTree.ts): trees
+ * from the imported file and trees the brush grew ("Split triangles"). `states[t]` is then
+ * the tree's dominant state. Painting a triangle whole sets its state and drops its tree;
+ * the split brush and `paintRegion` edit trees; `remap` rewrites the trees' leaves and
+ * recomputes the dominant state.
  *
  * `preserved` is a sparse map rather than an array of strings per triangle: typical
  * files have few split triangles, and a 1.3M-entry array would cost megabytes of nulls.
@@ -67,6 +68,8 @@ export class TrianglePaintField implements PaintField {
   readonly preserved: Map<number, string>;
   private readonly paintable: Uint8Array;
   private mergeScratch: Uint32Array | null = null;
+  /** Parsed trees and their leaf states, by triangle; an entry is valid while its string matches `preserved`. */
+  private readonly parsed = new Map<number, { tree: string; root: TreeNode; states: Set<number> }>();
 
   /** Shares `mesh` and `paintable` (1 = ModelPart triangle) with the caller; takes ownership of `init`. */
   constructor(mesh: EditableMesh, paintable: Uint8Array, init?: { states?: Uint16Array; preserved?: Map<number, string> }) {
@@ -76,8 +79,37 @@ export class TrianglePaintField implements PaintField {
     this.preserved = init?.preserved ?? new Map();
   }
 
-  stateAt(tri: number): State {
+  stateAt(tri: number, bary?: readonly [number, number, number]): State {
+    if (bary && this.preserved.size > 0) {
+      const p = this.parsedTree(tri);
+      if (p) return stateAtBary(p.root, [bary[0], bary[1], bary[2]]);
+    }
     return this.states[tri];
+  }
+
+  treeOf(tri: number): string | undefined {
+    return this.preserved.size > 0 ? this.preserved.get(tri) : undefined;
+  }
+
+  trees(): ReadonlyMap<number, string> {
+    return this.preserved;
+  }
+
+  leafStates(tri: number): ReadonlySet<number> | undefined {
+    return this.parsedTree(tri)?.states;
+  }
+
+  /** The triangle's tree, parsed (cached while its string is unchanged); undefined without one. */
+  private parsedTree(tri: number): { tree: string; root: TreeNode; states: Set<number> } | undefined {
+    const tree = this.preserved.get(tri);
+    if (tree === undefined) { this.parsed.delete(tri); return undefined; }
+    let p = this.parsed.get(tri);
+    if (!p || p.tree !== tree) {
+      const root = parseTree(tree), states = new Set<number>();
+      addLeafStates(root, states, true);
+      this.parsed.set(tri, (p = { tree, root, states }));
+    }
+    return p;
   }
 
   displayStates(): Readonly<Uint16Array> {
@@ -113,18 +145,84 @@ export class TrianglePaintField implements PaintField {
     const { states, preserved, paintable } = this;
     const cand = opts?.candidates;
     const exact = !!cand && !!opts?.candidatesExact; // the caller already tested them
+    const split = opts?.split && opts.split.limit > 0 ? opts.split : null;
     const count = cand ? cand.length : this.mesh.triCount;
     const hits = new Uint32Array(count);
+    const grown: { t: number; root: TreeNode }[] = [];
     const r2 = radius * radius;
     const [cx, cy, cz] = center;
+    const corner = (t: number, c: number): Vec3 => {
+      const v = tris[t * 3 + c] * 3;
+      return [vertices[v], vertices[v + 1], vertices[v + 2]];
+    };
+    const inside = (p: Vec3) => (p[0] - cx) ** 2 + (p[1] - cy) ** 2 + (p[2] - cz) ** 2 <= r2;
     let k = 0;
     for (let i = 0; i < count; i++) {
       const t = cand ? cand[i] : i;
       if (paintable[t] !== 1) continue;
-      if (states[t] === state && (preserved.size === 0 || !preserved.has(t))) continue; // nothing to change: skip the geometry test
-      if (exact || sqDistPointTriangle(vertices, tris, t, cx, cy, cz) <= r2) hits[k++] = t;
+      const tree = preserved.size > 0 ? preserved.get(t) : undefined;
+      if (states[t] === state && tree === undefined) continue; // nothing to change: skip the geometry test
+      if (!exact && sqDistPointTriangle(vertices, tris, t, cx, cy, cz) > r2) continue;
+      if (split) {
+        const c: [Vec3, Vec3, Vec3] = [corner(t, 0), corner(t, 1), corner(t, 2)];
+        if (!(inside(c[0]) && inside(c[1]) && inside(c[2]))) { // crossed by the sphere's surface: grow the tree
+          const before = tree !== undefined ? this.parsedTree(t)!.root : { state: states[t] };
+          const after = paintSphereTree(before, c, center, radius, state, split.limit);
+          if (after !== before) grown.push({ t, root: after });
+          continue;
+        }
+      }
+      hits[k++] = t;
     }
-    return this.paintTriangles(hits.subarray(0, k), state);
+    const whole = this.paintTriangles(hits.subarray(0, k), state);
+    if (grown.length === 0) return whole;
+    const edited = this.applyTrees(grown);
+    return whole.size === 0 ? edited : this.mergeEdits([whole, edited]);
+  }
+
+  paintRegion(region: Region, state: State): EditRecord {
+    const whole = Array.from(region.tris);
+    const edits: { t: number; root: TreeNode }[] = [];
+    for (const [t, leaves] of region.pieces) {
+      if (this.paintable[t] !== 1) continue;
+      const p = this.parsedTree(t);
+      if (!p) { whole.push(t); continue; }
+      const after = paintTreeLeaves(p.root, new Set(leaves), state);
+      if (after !== p.root) edits.push({ t, root: after });
+    }
+    const a = this.paintTriangles(whole, state);
+    if (edits.length === 0) return a;
+    const b = this.applyTrees(edits);
+    return a.size === 0 ? b : this.mergeEdits([a, b]);
+  }
+
+  /** Stores new trees as one edit; a tree that is a single leaf paints its triangle whole. */
+  private applyTrees(edits: readonly { t: number; root: TreeNode }[]): EditRecord {
+    const { states, preserved } = this;
+    const n = edits.length;
+    const outTris = new Uint32Array(n), before = new Uint16Array(n), after = new Uint16Array(n);
+    const pb = new Map<number, string>(), pa = new Map<number, string>();
+    edits.forEach(({ t, root }, i) => {
+      outTris[i] = t;
+      before[i] = states[t];
+      const old = preserved.get(t);
+      if (old !== undefined) pb.set(t, old);
+      if (isLeaf(root)) {
+        preserved.delete(t);
+        this.parsed.delete(t);
+        states[t] = root.state;
+      } else {
+        const tree = emitTree(root);
+        preserved.set(t, tree);
+        pa.set(t, tree);
+        states[t] = treeDominant(root);
+        const leafStates = new Set<number>();
+        addLeafStates(root, leafStates, true);
+        this.parsed.set(t, { tree, root, states: leafStates });
+      }
+      after[i] = states[t];
+    });
+    return diffEdit(outTris, before, after, pb, pa);
   }
 
   paintTriangles(tris: ArrayLike<number>, state: State): EditRecord {
@@ -142,7 +240,7 @@ export class TrianglePaintField implements PaintField {
       outTris[k] = t;
       outBefore[k] = states[t];
       k++;
-      if (tree !== undefined) { pb.set(t, tree); preserved.delete(t); }
+      if (tree !== undefined) { pb.set(t, tree); preserved.delete(t); this.parsed.delete(t); }
       states[t] = state;
     }
     return diffEdit(outTris.slice(0, k), outBefore.slice(0, k), state, pb, new Map());
@@ -268,7 +366,7 @@ export class TrianglePaintField implements PaintField {
     const { states, preserved } = this;
     if (typeof values === "number") for (let i = 0; i < tris.length; i++) states[tris[i]] = values;
     else for (let i = 0; i < tris.length; i++) states[tris[i]] = values[i];
-    for (const t of from.keys()) preserved.delete(t);
+    for (const t of from.keys()) { preserved.delete(t); this.parsed.delete(t); }
     for (const [t, tree] of to) preserved.set(t, tree);
   }
 

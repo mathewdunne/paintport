@@ -45,6 +45,23 @@ export interface BrushOpts {
    * can use them. Ignored without `candidates`.
    */
   candidatesExact?: boolean;
+
+  /**
+   * "Split triangles" (spec Q12): a triangle the sphere's surface crosses is not painted whole
+   * but grows its sub-triangle tree, with pieces down to `limit` (object units) at the sphere's
+   * surface. A triangle wholly inside the sphere is still painted whole. Absent: every touched
+   * triangle is painted whole, which drops its tree.
+   */
+  split?: { limit: number };
+}
+
+/**
+ * What a fill paints: whole triangles, plus for split triangles the leaves to paint (indices in
+ * `treeLeaves` order, see splitTree.ts).
+ */
+export interface Region {
+  tris: Uint32Array;
+  pieces: ReadonlyMap<number, Uint32Array>;
 }
 
 /**
@@ -68,8 +85,20 @@ export interface PaintFieldView {
    */
   readonly mesh: EditableMesh;
 
-  /** State at a surface point of triangle `tri`. The per-triangle field ignores `bary`. */
-  stateAt(tri: number, bary?: [number, number, number]): State;
+  /**
+   * State at a surface point of triangle `tri` (0 = unpainted): with `bary` (barycentric, in the
+   * triangle's corner order) the leaf of its tree there, without it the triangle's dominant state.
+   */
+  stateAt(tri: number, bary?: readonly [number, number, number]): State;
+
+  /** The triangle's sub-triangle tree (design states, internal dialect), if it has one. */
+  treeOf(tri: number): string | undefined;
+
+  /** Every sub-triangle tree by triangle. The field's live storage: read only. */
+  trees(): ReadonlyMap<number, string>;
+
+  /** The states a split triangle's leaves use, 0 for unpainted pieces (cached per tree); undefined without a tree. */
+  leafStates(tri: number): ReadonlySet<number> | undefined;
 
   /**
    * Per-triangle display state for the viewer (0 = unpainted, so the part's base color
@@ -96,12 +125,19 @@ export interface PaintField extends PaintFieldView {
    * Paints the triangles within `radius` of `center` (object space) with `state`: those
    * whose closest point to the center is at most `radius` away, which includes a triangle
    * larger than the sphere that the sphere merely touches. Only `opts.candidates` are
-   * tested, unless `opts.candidatesExact` says they need not be (see BrushOpts). Painting clears a triangle's preserved sub-triangle detail.
+   * tested, unless `opts.candidatesExact` says they need not be (see BrushOpts). Painting a triangle
+   * whole clears its sub-triangle tree; with `opts.split` crossed triangles grow theirs instead.
    */
   paintSphere(center: Vec3, radius: number, state: State, opts?: BrushOpts): EditRecord;
 
   /** Paints the given triangles (fills). Non-paintable and unknown triangles are skipped. */
   paintTriangles(tris: ArrayLike<number>, state: State): EditRecord;
+
+  /**
+   * Paints a fill's region: its whole triangles, and the listed leaves of split triangles (a
+   * pieces entry for a triangle without a tree paints it whole).
+   */
+  paintRegion(region: Region, state: State): EditRecord;
 
   /**
    * Replaces every state s > 0 by `map(s)` (merging colors: several states may map to the

@@ -76,8 +76,8 @@ const OPS: Op[] = [
     const candidates = rng.bool() ? undefined : randomTris(rng, p.objects[o].triCount).filter((t) => t >= 0);
     p.paintSphere(o, [rng.next() * 6 - 1, rng.next() * 3 - 1, rng.next() * 3 - 1], rng.next() * 2, randomState(p, rng, true), { candidates });
   },
-  (p, rng) => { const o = randomObject(p, rng); p.paintTriangles(o, p.smartFillRegion(o, rng.int(0, p.objects[o].triCount - 1), rng.pick([0, 15, 30, 60, 180])), randomState(p, rng, true)); },
-  (p, rng) => { const o = randomObject(p, rng); p.paintTriangles(o, p.shellFillRegion(o, rng.int(0, p.objects[o].triCount - 1)), randomState(p, rng, true)); },
+  (p, rng) => { const o = randomObject(p, rng); p.paintTriangles(o, p.smartFillRegion(o, rng.int(0, p.objects[o].triCount - 1), rng.pick([0, 15, 30, 60, 180])).tris, randomState(p, rng, true)); },
+  (p, rng) => { const o = randomObject(p, rng); p.paintTriangles(o, p.shellFillRegion(o, rng.int(0, p.objects[o].triCount - 1)).tris, randomState(p, rng, true)); },
   (p, rng) => { p.addColor(randomHex(rng)); },
   (p, rng) => { p.setColor(randomState(p, rng, false), randomHex(rng)); },
   (p, rng) => {

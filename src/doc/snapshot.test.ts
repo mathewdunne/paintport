@@ -93,7 +93,7 @@ describe("project snapshot", () => {
       x.paintSphere(0, [0.5, 0.5, 0], 0.4, 5);
       x.deleteColor(2, 1);
       x.setObjectBaseColor(0, 1);
-      x.paintTriangles(0, x.smartFillRegion(0, 14, 90), 2);
+      x.paintTriangles(0, x.smartFillRegion(0, 14, 90).tris, 2);
     };
     script(p);
     script(q);

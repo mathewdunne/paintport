@@ -123,6 +123,15 @@ all unpainted surface of that object. Exports keep the slicer's base-extruder se
   behave as there); it stays on its mesh piece, so touching parts and objects are not
   joined, and specks of other colors inside it are left alone. Unpainted triangles count
   as their base color. No settings.
+- **Split triangles** (Q12.1–Q12.4, PrusaSlicer's name; checkbox under Brush size, on by
+  default, remembered): the brush and eraser paint below triangle resolution by growing the
+  triangle's TriangleSelector tree (FORMAT.md 2a). Triangles the sphere's surface crosses are
+  cut until their pieces are at most 1/8 of the brush radius, never below 0.1 mm; a piece then
+  takes the color if its centroid is inside. Off: every touched triangle is painted whole, as
+  before, which drops its detail. Fills don't cut triangles but follow the pieces (Q12.3):
+  they flood piece by piece, so a fill stops exactly at a brushed line. Hover preview,
+  eyedropper and Alt+click read the piece under the cursor. Visibility for the visible-only
+  brush stays per triangle.
 - **Eraser**: brush that paints state 0 (base). Also available as a modifier while
   brushing (_default: hold `Shift`_).
 - **Undo/redo**: `Ctrl+Z` / `Ctrl+Shift+Z`, _default 200 steps_.
@@ -360,13 +369,21 @@ interface PaintField {
 `view/`, since it depends on the camera, and passed in as a triangle filter, so
 `PaintField` stays camera-agnostic.
 
-### 5.3 v1: `TrianglePaintField`
-- `states: Uint16Array`, one per triangle.
-- `preserved: Map<tri, string>` (sparse): the original paint tree, rewritten into design
-  states at import (internal dialect `bbs`, which is unbounded), for triangles that had
-  sub-triangle detail. Export converts it to the target dialect. Painting a triangle sets
-  its state and deletes its `preserved` entry. `remap` remaps leaves inside preserved
-  trees with the existing codec.
+### 5.3 `TrianglePaintField` (option 2 since phase 5)
+- `states: Uint16Array`, one per triangle (a split triangle's dominant leaf state).
+- `preserved: Map<tri, string>` (sparse): the triangle's TriangleSelector tree in design
+  states (internal dialect `bbs`, which is unbounded): trees from the imported file and
+  trees the "Split triangles" brush grew. Export converts them to the target dialect.
+  Painting a triangle whole sets its state and deletes its tree; the split brush
+  (`paintSphereTree`) and fills (`paintRegion`, leaves by index) edit trees. `remap`
+  remaps leaves with the existing codec. Tree logic lives in `splitTree.ts` (child order,
+  FORMAT.md 2a; a leaf budget keeps a tree under the sidecar's 65,536 characters).
+- Fills run on a `PieceGraph` (`pieces.ts`): triangles, with a split triangle replaced by
+  its leaves, linked inside the tree and across triangle sides by the stretch of the
+  shared edge they touch. Fills return a `Region` (whole triangles plus leaf indices).
+- The viewer flattens every tree into one `R32UI` texture (`treeAtlas.ts`) and walks it in
+  the fragment shader; a split triangle's `state` attribute holds its part's base, the
+  color of unpainted leaves.
 - `paintSphere`: the view narrows candidates with a three-mesh-bvh shapecast and filters
   them for visibility; the field does the exact test (closest point on the triangle
   within the radius) on those candidates.
@@ -374,13 +391,13 @@ interface PaintField {
   preservedBefore: Map<number, string> }` (a single `after` value for uniform fills). It's opaque to callers, so options 2/3 can
   store tree or topology snapshots instead.
 
-How options 2 and 3 fit in later:
-- **Option 2 (`TreePaintField`)**: per-triangle TriangleSelector trees. `paintSphere`
-  subdivides and `serialize` emits trees. Needs the split geometry reverse-engineered
-  and verified by PrusaSlicer/Bambu round-trips.
-- **Option 3 (`SplitMeshPaintField`)**: `paintSphere` cuts real triangles, so `mesh`
-  changes, and `serialize` emits flat strings over the new mesh. Undo snapshots
-  topology.
+Options 2 and 3 (decided in phase 5, Q12.0):
+- **Option 2** is implemented inside `TrianglePaintField` (above) rather than as a separate
+  `TreePaintField`: the storage for imported trees already had undo, remapping, export,
+  autosave and the sidecar. The split geometry is verified against PrusaSlicer
+  (`docs/plans/2026-10-09-subtriangle-spike.md`, `test/subtriangleExport.test.ts`).
+- **Option 3** (`SplitMeshPaintField`, cutting real triangles) was not built: it changes
+  the mesh, breaks export parity and grows files.
 
 ### 5.4 Design sidecar (Q6.1)
 Written into every export:
@@ -507,6 +524,11 @@ Each phase ends green: `npm run build`, Vitest, and the ported regression suite.
    vs. immediate paint, inclusion rule, texture import).
 5. **Sub-triangle precision**: decide between option 2 and option 3, starting with a
    time-boxed spike on option 2's split geometry.
+   Spike done 2026-10-09 (`docs/plans/2026-10-09-subtriangle-spike.md`, code in
+   `spike/subtri/`): the split geometry is verified against PrusaSlicer (FORMAT.md 2a), a
+   prototype brush's trees print where painted, and the viewer can walk trees in the
+   fragment shader at no measurable cost. **Decided: option 2** (Q12.0), built per Q12.1–Q12.7,
+   plan in `docs/plans/2026-10-09-subtriangle.md`.
 
 Performance target _default_: smooth brushing (60fps) on 1M-triangle models on a
 mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
@@ -565,3 +587,11 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q11.3 | Patch reach | Stays on its mesh piece, like the other fills: no spreading into touching parts or objects |
 | Q11.4 | Specks inside the patch | Left alone: only triangles showing the clicked color change |
 | Q11.5 | Name and place | "Replace color", key `R`, in the rail next to the Eyedropper (outside the Fill tools group) |
+| Q12.0 | Sub-triangle option | Option 2 (TriangleSelector trees per triangle), after the spike (`docs/plans/2026-10-09-subtriangle-spike.md`) |
+| Q12.1 | Cut resolution | Relative to the brush: pieces down to 1/8 of the radius, never below 0.1 mm |
+| Q12.2 | Tools that cut | Brush and eraser; AI Paint's mask edge maybe later |
+| Q12.3 | Fills on split triangles | Follow the pieces: flood piece by piece, stop exactly at brushed lines (no gap, no leak) |
+| Q12.4 | Whole-triangle mode | Keep it: "Split triangles" checkbox (PrusaSlicer's name) under Brush size, on by default |
+| Q12.5 | Smaller decisions (not asked) | Hover, eyedropper and Alt+click read the piece; the toggle covers the eraser and Shift-erase; visible-only stays per triangle; brushing with the toggle off repaints touched triangles whole |
+| Q12.6 | Process | Task plan first, then built straight through, one check-in at the end |
+| Q12.7 | File size warning | None; revisit if real files get slow |

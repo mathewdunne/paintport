@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AiPaintSection } from "./AiPaintSection";
 import type { AiModelState } from "./useAiModel";
@@ -113,6 +114,18 @@ export function SidePanel({
                   onValueChange={([v]) => onSettings({ radius: sliderToRadius(v / RADIUS_SLIDER_STEPS) })}
                 />
               </SliderRow>
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="split-triangles"
+                  className="mt-0.5"
+                  checked={settings.splitTriangles}
+                  onCheckedChange={(checked) => onSettings({ splitTriangles: checked === true })}
+                />
+                <label htmlFor="split-triangles" className="space-y-0.5">
+                  <span className="block text-xs font-medium">{strings.panel.splitTriangles}</span>
+                  <span className="block text-xs text-muted-foreground">{strings.panel.splitTrianglesHint}</span>
+                </label>
+              </div>
               <div className="flex items-start justify-between gap-3">
                 <label htmlFor="paint-through" className="space-y-0.5">
                   <span className="block text-xs font-medium">{strings.panel.paintThrough}</span>

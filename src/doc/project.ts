@@ -5,11 +5,12 @@ import { resolveTriangleState } from "./display";
 import { DocError } from "./errors";
 import type { ProjectEvent, ProjectListener } from "./events";
 import { autoFeatureScale } from "./featureField";
-import { featureFill, shellFill, smartFill } from "./fill";
-import { guidedFill } from "./guidedFill";
+import { featureFillNodes, shellFill, smartFillNodes } from "./fill";
+import { guidedFillNodes } from "./guidedFill";
 import { hashGeometry, newProjectId } from "./geometryHash";
 import { MeshTopology } from "./meshTopology";
-import type { BrushOpts, EditRecord, PaintField, PaintFieldView, State, Vec3 } from "./paintField";
+import { PieceGraph, type Seed } from "./pieces";
+import type { BrushOpts, EditRecord, PaintField, PaintFieldView, Region, State, Vec3 } from "./paintField";
 import { clonePin, dropPinState, pinProblem, prunePins, restorePinState, samePin, type MappingPin } from "./pins";
 import type { ColorUsage, DesignColor, PartId, ProjectObject } from "./types";
 
@@ -200,19 +201,35 @@ export class Project {
     return () => { this.listeners.delete(listener); };
   }
 
-  /** Eyedropper: the design state shown at triangle `tri` (its paint, else its part's base; 0 off the print surface). */
-  stateShownAt(objectIndex: number, tri: number): State {
-    return resolveTriangleState(this, objectIndex, tri);
+  /**
+   * Eyedropper: the design state shown at triangle `tri` (its paint, else its part's base; 0 off
+   * the print surface). With `bary` (the point's barycentric coordinates) a split triangle
+   * answers with the piece there.
+   */
+  stateShownAt(objectIndex: number, tri: number, bary?: readonly [number, number, number]): State {
+    return resolveTriangleState(this, objectIndex, tri, bary);
   }
 
-  /** Triangle counts per color, indexed by state: painted with it, and unpainted on a part whose base color it is. */
+  /**
+   * Triangle counts per color, indexed by state: painted with it, and unpainted on a part whose
+   * base color it is. A split triangle counts once for every color its pieces use.
+   */
   colorUsage(): ColorUsage[] {
     const usage: ColorUsage[] = this._palette.map(() => ({ painted: 0, base: 0 }));
     this.objects.forEach((object, i) => {
-      const painted = this.fields[i].displayStates();
+      const field = this.fields[i];
+      const painted = field.displayStates();
+      const trees = field.trees();
       const baseOfPart = object.parts.map((p) => this._base.get(p.id) ?? 0);
       for (let t = 0; t < painted.length; t++) {
         if (object.paintable[t] !== 1) continue;
+        if (trees.size > 0 && trees.has(t)) {
+          for (const s of field.leafStates(t)!) {
+            if (s > 0) usage[s].painted++;
+            else usage[baseOfPart[object.triPart[t]]].base++;
+          }
+          continue;
+        }
         const s = painted[t];
         if (s > 0) usage[s].painted++;
         else usage[baseOfPart[object.triPart[t]]].base++;
@@ -259,6 +276,13 @@ export class Project {
     this.checkObject(objectIndex);
     this.checkState(state, true);
     return this.commitPaint(objectIndex, this.editable[objectIndex].paintTriangles(tris, state));
+  }
+
+  /** Paints a fill's region (whole triangles and pieces of split ones) with `state`. Returns the number of triangles that changed. */
+  paintRegion(objectIndex: number, region: Region, state: State): number {
+    this.checkObject(objectIndex);
+    this.checkState(state, true);
+    return this.commitPaint(objectIndex, this.editable[objectIndex].paintRegion(region, state));
   }
 
   // --- strokes -------------------------------------------------------------------
@@ -450,33 +474,41 @@ export class Project {
     return (this.topologies[objectIndex] ??= new MeshTopology(object.mesh, object.paintable, object.parts));
   }
 
-  /** Triangles a shell fill from `seedTri` would paint: its whole connected shell. Does not paint. */
-  shellFillRegion(objectIndex: number, seedTri: number): Uint32Array {
-    return shellFill(this.topology(objectIndex), seedTri);
+  /** What a shell fill from `seedTri` would paint: its whole connected shell, split triangles whole. Does not paint. */
+  shellFillRegion(objectIndex: number, seedTri: number): Region {
+    return { tris: shellFill(this.topology(objectIndex), seedTri), pieces: new Map() };
   }
 
-  /**
-   * Triangles a smart fill from `seedTri` would paint: flood across edges with a dihedral
-   * angle <= `angleDeg` that show the same state as the seed. With a feature size `scale`
-   * (object units, > 0) the bend is measured over that size instead (see `featureFill`).
-   * Does not paint.
-   */
   /** A smart fill feature size suited to the object's mesh, in its own units; 0 for a mesh of flat facets (see `autoFeatureScale`). */
   autoFeatureScale(objectIndex: number): number {
     return autoFeatureScale(this.topology(objectIndex));
   }
 
-  smartFillRegion(objectIndex: number, seedTri: number, angleDeg: number, scale = 0): Uint32Array {
-    const topology = this.topology(objectIndex), display = this.displayView(objectIndex);
-    return scale > 0 ? featureFill(topology, seedTri, angleDeg, scale, display) : smartFill(topology, seedTri, angleDeg, display);
+  /**
+   * What a smart fill from `seed` (a triangle, or a point on one) would paint: flood across edges
+   * with a dihedral angle <= `angleDeg` that show the same state as the seed, piece by piece
+   * through split triangles. With a feature size `scale` (object units, > 0) the bend is
+   * measured over that size instead (see `featureFill`). Does not paint.
+   */
+  smartFillRegion(objectIndex: number, seed: Seed | number, angleDeg: number, scale = 0): Region {
+    const graph = this.fillGraph(objectIndex);
+    const node = graph.nodeOf(typeof seed === "number" ? { tri: seed } : seed);
+    return graph.toRegion(scale > 0 ? featureFillNodes(graph, node, angleDeg, scale) : smartFillNodes(graph, node, angleDeg));
   }
 
   /**
-   * Triangles a guided fill would paint: grown from the `inside` triangles like smart fill (with
-   * the same angle and feature size), minus what the `outside` triangles reach first. Does not paint.
+   * What a guided fill would paint: grown from the `inside` marks like smart fill (with the same
+   * angle and feature size), minus what the `outside` marks reach first. Does not paint.
    */
-  guidedFillRegion(objectIndex: number, inside: readonly number[], outside: readonly number[], angleDeg: number, scale = 0): Uint32Array {
-    return guidedFill(this.topology(objectIndex), inside, outside, angleDeg, scale, this.displayView(objectIndex));
+  guidedFillRegion(objectIndex: number, inside: readonly (Seed | number)[], outside: readonly (Seed | number)[], angleDeg: number, scale = 0): Region {
+    const graph = this.fillGraph(objectIndex);
+    const nodes = (seeds: readonly (Seed | number)[]) => seeds.map((s) => graph.nodeOf(typeof s === "number" ? { tri: s } : s));
+    return graph.toRegion(guidedFillNodes(graph, nodes(inside), nodes(outside), angleDeg, scale));
+  }
+
+  /** The fill surface of an object as it is painted now: split triangles stand for their pieces. */
+  private fillGraph(objectIndex: number): PieceGraph {
+    return new PieceGraph(this.topology(objectIndex), this.displayView(objectIndex), this.fields[objectIndex].trees());
   }
 
   private displayView(objectIndex: number) {

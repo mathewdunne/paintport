@@ -27,9 +27,9 @@ describe("triangle soup", () => {
 
   it("fills like the welded cube", () => {
     const p = projectOf(soupCube());
-    expect(sorted(p.smartFillRegion(0, 4, 30))).toEqual([4, 5]);
-    expect(sorted(p.smartFillRegion(0, 4, 91))).toEqual(range(0, 12));
-    expect(p.shellFillRegion(0, 0)).toHaveLength(12);
+    expect(sorted(p.smartFillRegion(0, 4, 30).tris)).toEqual([4, 5]);
+    expect(sorted(p.smartFillRegion(0, 4, 91).tris)).toEqual(range(0, 12));
+    expect(p.shellFillRegion(0, 0).tris).toHaveLength(12);
   });
 
   it("keeps separate bodies separate", () => {
@@ -52,8 +52,8 @@ describe("welding is per part", () => {
     const topo = p.topology(0);
     expect(topo.stats.shells).toBe(2);
     expect(topo.stats.weldedVertices).toBe(0);
-    expect(p.shellFillRegion(0, 0)).toHaveLength(12);
-    expect(p.smartFillRegion(0, 0, 180)).toHaveLength(12);
+    expect(p.shellFillRegion(0, 0).tris).toHaveLength(12);
+    expect(p.smartFillRegion(0, 0, 180).tris).toHaveLength(12);
   });
 });
 
@@ -73,17 +73,17 @@ describe("duplicate faces", () => {
 
   it("are filled together with their twin", () => {
     const p = projectOf(doubled());
-    expect(sorted(p.smartFillRegion(0, 4, 30))).toEqual([4, 5, 16, 17]);
-    expect(sorted(p.smartFillRegion(0, 16, 30))).toEqual([4, 5, 16, 17]); // starting from the copy
-    expect(sorted(p.smartFillRegion(0, 4, 91))).toEqual(range(0, 24));
-    expect(p.shellFillRegion(0, 20)).toHaveLength(24);
+    expect(sorted(p.smartFillRegion(0, 4, 30).tris)).toEqual([4, 5, 16, 17]);
+    expect(sorted(p.smartFillRegion(0, 16, 30).tris)).toEqual([4, 5, 16, 17]); // starting from the copy
+    expect(sorted(p.smartFillRegion(0, 4, 91).tris)).toEqual(range(0, 24));
+    expect(p.shellFillRegion(0, 20).tris).toHaveLength(24);
   });
 
   it("follow the display state: a copy painted differently is not swept along", () => {
     const p = projectOf(doubled());
     p.paintTriangles(0, [16], 2);
-    expect(sorted(p.smartFillRegion(0, 4, 30))).toEqual([4, 5, 17]);
-    expect(sorted(p.smartFillRegion(0, 16, 180))).toEqual([16]); // from the painted copy only itself matches
+    expect(sorted(p.smartFillRegion(0, 4, 30).tris)).toEqual([4, 5, 17]);
+    expect(sorted(p.smartFillRegion(0, 16, 180).tris)).toEqual([16]); // from the painted copy only itself matches
   });
 
   it("do not leave holes in the surface", () => {
@@ -91,7 +91,7 @@ describe("duplicate faces", () => {
     const strip = stripMesh([0, 0, 0]);
     const p = projectOf({ vertices: strip.vertices, tris: [...strip.tris, ...strip.tris.slice(6, 12)] }); // quad 1 is triangles 2 and 3
     expect(p.topology(0).stats.nonManifoldEdges).toBe(0);
-    expect(sorted(p.smartFillRegion(0, 0, 5))).toEqual(range(0, 10)); // everything, including beyond the doubled quad
+    expect(sorted(p.smartFillRegion(0, 0, 5).tris)).toEqual(range(0, 10)); // everything, including beyond the doubled quad
   });
 
   it("are recognised when wound the other way round", () => {
@@ -99,7 +99,7 @@ describe("duplicate faces", () => {
     const flipped = cube.tris.slice(0, 3).reverse();
     const p = projectOf({ vertices: cube.vertices, tris: [...cube.tris, ...flipped] });
     expect(p.topology(0).stats).toMatchObject({ duplicateFaces: 1, nonManifoldEdges: 0, manifoldEdges: 18 });
-    expect(sorted(p.smartFillRegion(0, 0, 30))).toContain(12);
+    expect(sorted(p.smartFillRegion(0, 0, 30).tris)).toContain(12);
   });
 
   it("combine with soup", () => {
@@ -116,19 +116,19 @@ describe("non-manifold edges", () => {
     const p = projectOf(book);
     const topo = p.topology(0);
     expect(topo.nonManifoldLinks!.size).toBe(3);
-    expect(sorted(p.smartFillRegion(0, 0, 30))).toEqual([0, 1]);
-    expect(sorted(p.smartFillRegion(0, 2, 45))).toEqual([2]); // both other pages are 90 degrees away
+    expect(sorted(p.smartFillRegion(0, 0, 30).tris)).toEqual([0, 1]);
+    expect(sorted(p.smartFillRegion(0, 2, 45).tris)).toEqual([2]); // both other pages are 90 degrees away
   });
 });
 
 describe("smart fill angle", () => {
   const p = () => projectOf(stripMesh([10, 40, 25]));
   it("treats NaN and infinities as 0 instead of flooding everything", () => {
-    const zero = sorted(p().smartFillRegion(0, 0, 0));
+    const zero = sorted(p().smartFillRegion(0, 0, 0).tris);
     expect(zero).toEqual([0, 1]);
-    for (const bad of [NaN, Infinity, -Infinity, -5]) expect(sorted(p().smartFillRegion(0, 0, bad))).toEqual(zero);
+    for (const bad of [NaN, Infinity, -Infinity, -5]) expect(sorted(p().smartFillRegion(0, 0, bad).tris)).toEqual(zero);
   });
   it("clamps a huge finite angle to 180", () => {
-    expect(p().smartFillRegion(0, 0, 1e9)).toHaveLength(8);
+    expect(p().smartFillRegion(0, 0, 1e9).tris).toHaveLength(8);
   });
 });

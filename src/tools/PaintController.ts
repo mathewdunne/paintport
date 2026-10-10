@@ -1,4 +1,6 @@
 import { resolveTriangleState } from "../doc/display";
+import type { Region } from "../doc/paintField";
+import { EMPTY_REGION, regionSize } from "../doc/pieces";
 import type { Project } from "../doc/project";
 import { objectSpaceSphere } from "../doc/transform";
 import { interpolateDabs, type Point } from "./dabs";
@@ -29,6 +31,8 @@ export interface GuidedState {
 
 interface GuidedMark {
   tri: number;
+  /** Where on the triangle (barycentric), which picks the piece of a split triangle. */
+  bary?: readonly [number, number, number];
   /** World space, for drawing. */
   point: Vec3;
   inside: boolean;
@@ -64,6 +68,14 @@ const FINAL_DAB_SHARE = 0.5;
 /** Dabs per frame are limited so that they take about this long; a fast drag then gets wider spacing, not a stall. */
 const DAB_BUDGET_MS = 10;
 const MAX_DABS_PER_FRAME = 64;
+
+/**
+ * "Split triangles": how small (world mm) the brush cuts pieces at its edge, for a brush of this
+ * radius: an eighth of it, but never below 0.1 mm, finer than a 0.4 mm nozzle prints (spec Q12.1).
+ */
+export function splitLimit(radius: number): number {
+  return Math.max(radius / 8, 0.1);
+}
 
 type Gesture = "none" | "stroke" | "orbit";
 
@@ -111,7 +123,7 @@ export class PaintController {
   private fillTimer = 0;
   private warmTimer = 0;
   /** The guided fill's marks (all on one object) and the region they give; null when there are none. */
-  private guided: { object: number; marks: GuidedMark[]; region: Uint32Array } | null = null;
+  private guided: { object: number; marks: GuidedMark[]; region: Region } | null = null;
   private guidedDirty = false;
   private readonly ai: AiPaintSession;
   /** AI Paint is analyzing a view: the cursor over the model shows it is busy. */
@@ -453,13 +465,15 @@ export class PaintController {
   private dab(hit: PickHit, erase: boolean): void {
     const state = erase ? 0 : this.paintState();
     if (state === null) return;
-    const { radius, paintThrough } = this.settings;
+    const { radius, paintThrough, splitTriangles } = this.settings;
     const started = this.env.now();
     for (const target of this.view.brushCandidates(hit, radius, !paintThrough)) {
       // The view tested the candidates against the world-space sphere, which is what the ring shows. The object-space
       // sphere is only an approximation under a non-uniform scale, so the field must not test them again.
-      const sphere = objectSpaceSphere(this.project.objects[target.object].transform, hit.point, radius);
-      this.project.paintSphere(target.object, sphere.center, sphere.radius, state, { candidates: target.tris, candidatesExact: true });
+      const transform = this.project.objects[target.object].transform;
+      const sphere = objectSpaceSphere(transform, hit.point, radius);
+      const split = splitTriangles ? { limit: objectSpaceSphere(transform, hit.point, splitLimit(radius)).radius } : undefined;
+      this.project.paintSphere(target.object, sphere.center, sphere.radius, state, { candidates: target.tris, candidatesExact: true, split });
     }
     this.dabMs = this.dabMs * 0.7 + Math.max(0.05, this.env.now() - started) * 0.3;
   }
@@ -470,15 +484,16 @@ export class PaintController {
     const hit = this.view.pick(x, y);
     const state = this.paintState();
     if (!hit || state === null) return;
-    this.project.paintTriangles(hit.object, this.fillRegion(hit), state);
+    this.project.paintRegion(hit.object, this.fillRegion(hit), state);
   }
 
-  private fillRegion(hit: PickHit): Uint32Array {
+  private fillRegion(hit: PickHit): Region {
+    const seed = { tri: hit.tri, bary: hit.bary };
     switch (this.settings.tool) {
       case "shellFill": return this.project.shellFillRegion(hit.object, hit.tri);
       // Smart fill without an edge limit: the connected patch that shows the clicked color (spec Q11).
-      case "replaceColor": return this.project.smartFillRegion(hit.object, hit.tri, 180);
-      default: return this.project.smartFillRegion(hit.object, hit.tri, this.settings.smartAngle, this.objectScale(hit.object, hit.point));
+      case "replaceColor": return this.project.smartFillRegion(hit.object, seed, 180);
+      default: return this.project.smartFillRegion(hit.object, seed, this.settings.smartAngle, this.objectScale(hit.object, hit.point));
     }
   }
 
@@ -503,8 +518,8 @@ export class PaintController {
     if (!hit) return;
     this.clearRegion(); // the hover preview gives way to the guided region
     const marks = this.guided?.object === hit.object ? this.guided.marks.filter((m) => m.tri !== hit.tri) : [];
-    marks.push({ tri: hit.tri, point: hit.point, inside });
-    this.guided = { object: hit.object, marks, region: new Uint32Array(0) };
+    marks.push({ tri: hit.tri, bary: hit.bary, point: hit.point, inside });
+    this.guided = { object: hit.object, marks, region: EMPTY_REGION };
     this.updateGuided();
   }
 
@@ -523,7 +538,7 @@ export class PaintController {
     const g = this.guided, state = this.paintState();
     if (!g) return;
     this.clearGuided();
-    if (state !== null && g.region.length > 0) this.project.paintTriangles(g.object, g.region, state);
+    if (state !== null && regionSize(g.region) > 0) this.project.paintRegion(g.object, g.region, state);
   }
 
   /** Drops the marks and their region (Escape). */
@@ -546,16 +561,17 @@ export class PaintController {
     if (!g) return;
     const inside = g.marks.filter((m) => m.inside), outside = g.marks.filter((m) => !m.inside);
     const scale = this.objectScale(g.object, (inside[0] ?? g.marks[0]).point);
-    g.region = this.project.guidedFillRegion(g.object, inside.map((m) => m.tri), outside.map((m) => m.tri), this.settings.smartAngle, scale);
+    const seed = (m: GuidedMark) => ({ tri: m.tri, bary: m.bary });
+    g.region = this.project.guidedFillRegion(g.object, inside.map(seed), outside.map(seed), this.settings.smartAngle, scale);
     this.view.setRegionHighlight(g.object, g.region);
     this.view.setMarks(g.marks.map((m) => ({ point: m.point, inside: m.inside })));
-    this.callbacks.onGuided?.({ inside: inside.length, outside: outside.length, tris: g.region.length });
+    this.callbacks.onGuided?.({ inside: inside.length, outside: outside.length, tris: regionSize(g.region) });
   }
 
   private pickColorAt(x: number, y: number): void {
     const hit = this.view.pick(x, y);
     if (!hit) return;
-    const state = resolveTriangleState(this.project, hit.object, hit.tri);
+    const state = resolveTriangleState(this.project, hit.object, hit.tri, hit.bary);
     if (state > 0) this.callbacks.onPickState(state);
   }
 
@@ -622,7 +638,7 @@ export class PaintController {
     } else if (tool === "eyedropper") {
       this.clearRegion();
       this.view.hideBrushCursor();
-      const state = resolveTriangleState(this.project, hit.object, hit.tri);
+      const state = resolveTriangleState(this.project, hit.object, hit.tri, hit.bary);
       this.callbacks.onSwatch(state > 0 ? { x: p.x, y: p.y, color: this.project.palette[state].color } : null);
     } else {
       this.view.hideBrushCursor();
@@ -642,12 +658,12 @@ export class PaintController {
     const key = `${this.settings.tool}|${hit.object}|${this.settings.activeState}|${smart ? `${this.settings.smartAngle}|${this.settings.smartScale ?? "auto"}|${this.settings.smartScaleSensitivity ?? "default"}` : ""}|${this.epoch}`;
     const undirected = this.settings.tool === "shellFill" ||
       ((!smart || this.objectScale(hit.object, hit.point) === 0) && !this.project.topology(hit.object).nonManifoldLinks?.size);
-    if (key === this.fillKey && (undirected || hit.tri === this.fillSeed) && this.view.isRegionHighlighted(hit.object, hit.tri)) return;
+    if (key === this.fillKey && (undirected || hit.tri === this.fillSeed) && this.view.isRegionHighlighted(hit.object, hit.tri, hit.bary)) return;
     // No preview where a fill would change nothing, e.g. right after filling there: the region
     // already shows the active color. Smart fill only covers the seed's color, so the seed tells.
     const active = this.paintState();
     const shellKey = `${key}|${active}|${this.project.topology(hit.object).shellOfTri[hit.tri]}`;
-    if (this.settings.tool === "shellFill" ? shellKey === this.unchangedShell : resolveTriangleState(this.project, hit.object, hit.tri) === active) {
+    if (this.settings.tool === "shellFill" ? shellKey === this.unchangedShell : resolveTriangleState(this.project, hit.object, hit.tri, hit.bary) === active) {
       this.clearRegion();
       return;
     }
@@ -662,7 +678,7 @@ export class PaintController {
     }
     const started = this.env.now();
     const region = this.fillRegion(hit);
-    if (this.settings.tool === "shellFill" && region.every((t) => resolveTriangleState(this.project, hit.object, t) === active)) {
+    if (this.settings.tool === "shellFill" && region.tris.every((t) => resolveTriangleState(this.project, hit.object, t) === active && !this.project.fields[hit.object].treeOf(t))) {
       this.unchangedShell = shellKey;
       this.clearRegion();
       return;

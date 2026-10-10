@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { cubeMesh, joinMeshes, makeModel } from "../../test/support/docFixtures";
 import { applyTransform, parseTransform } from "../core";
+import type { Region } from "../doc/paintField";
 import { createProject, type Project } from "../doc/project";
 import { sqDistPointTriangle } from "../doc/triangleMath";
 import { captureFor, FakeSegmenter, settle } from "../../test/support/fakeSam";
 import { texturedPlate, plateTriAt } from "../../test/support/plates";
 import { featureBend } from "../doc/featureField";
-import { PaintController, type ControllerEnv, type GuidedState } from "./PaintController";
+import { PaintController, splitLimit, type ControllerEnv, type GuidedState } from "./PaintController";
 import type { AiState } from "./aiPaint";
 import type { BrushTarget, PaintSettings, PaintView, PickHit, ViewMark, SamCapture } from "./types";
 
@@ -26,7 +27,7 @@ class FakeView implements PaintView {
   cursor: { erase: boolean; radius: number } | null = null;
   cursorShown = 0;
   regionCalls: (number | null)[] = [];
-  region: { object: number; tris: Uint32Array } | null = null;
+  region: { object: number; tris: Uint32Array; pieces: ReadonlyMap<number, Uint32Array> } | null = null;
   marks: readonly ViewMark[] = [];
   cssCursor = "";
   private viewListeners = new Set<() => void>();
@@ -41,14 +42,14 @@ class FakeView implements PaintView {
   pixelSizeAt() { return 0.01; } // 1 px = 0.01 world units
   showBrushCursor(_hit: PickHit, radius: number, erase: boolean) { this.cursor = { erase, radius }; this.cursorShown++; }
   hideBrushCursor() { this.cursor = null; }
-  setRegionHighlight(_object: number, tris: Uint32Array | null) {
-    this.region = tris ? { object: _object, tris } : null;
-    this.regionCalls.push(tris ? tris.length : null);
+  setRegionHighlight(_object: number, region: Region | null) {
+    this.region = region ? { object: _object, tris: region.tris, pieces: region.pieces } : null;
+    this.regionCalls.push(region ? region.tris.length + region.pieces.size : null);
   }
   setMarks(marks: readonly ViewMark[]) { this.marks = marks; }
   captureFn: (size: number) => SamCapture | null = () => null;
   captureSam(size: number) { return this.captureFn(size); }
-  isRegionHighlighted(object: number, tri: number) { return !!this.region && this.region.object === object && this.region.tris.includes(tri); }
+  isRegionHighlighted(object: number, tri: number) { return !!this.region && this.region.object === object && (this.region.tris.includes(tri) || this.region.pieces.has(tri)); }
   onViewChange(listener: () => void) { this.viewListeners.add(listener); return () => { this.viewListeners.delete(listener); }; }
   setCursor(cursor: string) { this.cssCursor = cursor; }
   changeView() { for (const l of this.viewListeners) l(); }
@@ -89,7 +90,7 @@ function worldCandidates(project: Project): FakeView["candidateFn"] {
   };
 }
 
-const base: PaintSettings = { tool: "brush", activeState: 2, radius: 0.3, paintThrough: false, smartAngle: 30, smartScale: 0 };
+const base: PaintSettings = { tool: "brush", activeState: 2, radius: 0.3, paintThrough: false, splitTriangles: false, smartAngle: 30, smartScale: 0 };
 
 function setup(settings: Partial<PaintSettings> = {}, mesh = cubeMesh(), transform: string | null = null) {
   const model = makeModel(mesh, { filaments: [{ color: "#FF0000" }] });
@@ -242,6 +243,76 @@ describe("brush strokes", () => {
     expect(project.strokeOpen).toBe(false);
   });
 });
+
+describe("Split triangles", () => {
+  it("cuts the triangle under a small brush instead of painting it whole", () => {
+    const { project, down, up } = setup({ splitTriangles: true, radius: 0.2 });
+    down(); up();
+    const field = project.fields[0];
+    expect(field.treeOf(4)).toBeDefined();
+    expect(project.stateShownAt(0, 4)).toBe(1); // mostly unpainted: the dominant leaf shows the base
+    expect(project.undoCount).toBe(1);
+  });
+
+  it("paints whole triangles when off", () => {
+    const { project, down, up } = setup({ splitTriangles: false, radius: 0.2 });
+    down(); up();
+    expect(project.fields[0].trees().size).toBe(0);
+    expect(project.stateShownAt(0, 4)).toBe(2);
+  });
+
+  it("erases with pieces too", () => {
+    const { project, down, up } = setup({ splitTriangles: true, radius: 0.2, tool: "eraser" });
+    project.paintTriangles(0, [4], 2);
+    down(); up();
+    expect(project.fields[0].treeOf(4)).toBeDefined();
+  });
+
+  it("cuts down to an eighth of the radius, never below 0.1 mm, in object units", () => {
+    expect(splitLimit(3)).toBe(0.375);
+    expect(splitLimit(0.4)).toBe(0.1);
+    const { project, down, up } = setup({ splitTriangles: true, radius: 2 }, cubeMesh(), "2 0 0 0 2 0 0 0 2 0 0 0");
+    const calls: (number | undefined)[] = [];
+    const paint = project.paintSphere.bind(project);
+    project.paintSphere = (o, c, r, s, opts) => { calls.push(opts?.split?.limit); return paint(o, c, r, s, opts); };
+    down(); up();
+    expect(calls[0]).toBeCloseTo(0.25 / 2); // 2 / 8 world mm, halved by the scale
+  });
+});
+
+describe("pieces under the cursor", () => {
+  it("the eyedropper and the hover chip read the piece at the cursor, not the triangle's dominant color", () => {
+    const s = setup({ tool: "eyedropper" });
+    // Triangle 4 of the unit cube: a split tree whose child 0 (at corner 0) is color 3, the rest unpainted.
+    s.project.paintSphere(0, cornerOf(s.project, 4, 0), 0.3, 3, { split: { limit: 0.05 } });
+    expect(s.project.fields[0].treeOf(4)).toBeDefined();
+    s.view.pickFn = (x) => ({ object: 0, tri: 4, point: [x / 100, 0, 0.5], normal: [0, -1, 0], distance: 10, bary: x < 60 ? [0.95, 0.03, 0.02] : [0.1, 0.45, 0.45] });
+    s.down({ clientX: 50 }); s.up({ clientX: 50 });
+    expect(s.picked.at(-1)).toBe(3);
+    s.down({ clientX: 70 }); s.up({ clientX: 70 });
+    expect(s.picked.at(-1)).toBe(1); // the unpainted piece shows the base color
+  });
+
+  it("a fill previews and paints the pieces of a split triangle", () => {
+    const s = setup({ tool: "smartFill", activeState: 3, smartAngle: 30 });
+    s.project.paintSphere(0, cornerOf(s.project, 4, 0), 0.3, 2, { split: { limit: 0.05 } }); // a color 2 corner on triangle 4
+    s.project.clearHistory();
+    s.view.pickFn = (x) => ({ object: 0, tri: 4, point: [x / 100, 0, 0.5], normal: [0, -1, 0], distance: 10, bary: [0.1, 0.45, 0.45] });
+    s.hover(50); s.env.frame();
+    expect(s.view.region?.pieces.has(4)).toBe(true); // the unpainted pieces of triangle 4
+    s.down(); s.up();
+    expect(s.project.undoCount).toBe(1);
+    expect(s.project.stateShownAt(0, 4, [0.1, 0.45, 0.45])).toBe(3);
+    expect(s.project.stateShownAt(0, 4, [0.98, 0.01, 0.01])).toBe(2); // the corner keeps its color
+  });
+});
+
+/** Object-space corner `k` of triangle `tri` of object 0. */
+function cornerOf(project: Project, tri: number, k: number): [number, number, number] {
+  const { vertices, tris } = project.objects[0].mesh;
+  const v = tris[tri * 3 + k] * 3;
+  return [vertices[v], vertices[v + 1], vertices[v + 2]];
+}
 
 describe("brush in world space", () => {
   it("converts the brush sphere into the object's own space through its build transform", () => {
@@ -610,7 +681,7 @@ describe("fills", () => {
 
   it("replace color takes only the clicked color: other colors stop it and stay as they are", () => {
     const { project, down, up } = setup({ tool: "replaceColor" });
-    const face = Array.from(project.smartFillRegion(0, 4, 30)).sort((a, b) => a - b); // the clicked triangle's face
+    const face = Array.from(project.smartFillRegion(0, 4, 30).tris).sort((a, b) => a - b); // the clicked triangle's face
     const others = Array.from({ length: 12 }, (_, t) => t).filter((t) => !face.includes(t));
     project.paintTriangles(0, face, 3);
     down(); up(); // the face shows color 3: only it changes
@@ -694,7 +765,7 @@ describe("fills", () => {
   it("recomputes a smoothed fill when moving from its interior onto a crease", () => {
     const s = setup({ tool: "smartFill", smartAngle: 20, smartScale: 0.3 }, texturedPlate());
     const interior = plateTriAt(1, 3);
-    const first = s.project.smartFillRegion(0, interior, 20, 0.3);
+    const first = s.project.smartFillRegion(0, interior, 20, 0.3).tris;
     const bend = featureBend(s.project.topology(0), 0.3)!;
     const crease = Array.from(first).find((t) => bend[t] >= 20 * Math.PI / 180)!;
     expect(crease).toBeDefined();
@@ -703,7 +774,7 @@ describe("fills", () => {
     s.hover(50); s.env.frame();
     expect(s.view.region?.tris).toHaveLength(first.length);
     s.hover(70); s.env.frame(); s.env.advance(100); s.env.frame();
-    expect(s.view.region?.tris).toEqual(s.project.smartFillRegion(0, crease, 20, 0.3));
+    expect(s.view.region?.tris).toEqual(s.project.smartFillRegion(0, crease, 20, 0.3).tris);
     const preview = Array.from(s.view.region!.tris).sort((a, b) => a - b);
     s.down({ clientX: 70 }); s.up({ clientX: 70 });
     expect(painted(s.project)).toEqual(preview);

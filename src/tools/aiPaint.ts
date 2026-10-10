@@ -6,6 +6,8 @@
 // the region onto surface no view has seen (Q10.4). Only the first click's color can join (Q10.9).
 // The model answers asynchronously; an answer for marks that changed in the meantime is dropped.
 import { resolveDisplayStates, resolveTriangleState } from "../doc/display";
+import type { Region } from "../doc/paintField";
+import { EMPTY_REGION, regionSize } from "../doc/pieces";
 import type { Vec3 } from "../doc/paintField";
 import type { Project } from "../doc/project";
 import { liftMask, triangleFrames, type MaskSplit, type TriangleFrames } from "../sam/lift";
@@ -64,7 +66,7 @@ export class AiPaintSession {
   private object = -1;
   private marks: AiMark[] = [];
   private views: ViewEntry[] = [];
-  private region: Uint32Array = new Uint32Array(0);
+  private region: Region = EMPTY_REGION;
   private nextView = 1;
   /** Per object, built on first use (geometry never changes in v1). */
   private readonly frames = new Map<number, TriangleFrames>();
@@ -110,7 +112,7 @@ export class AiPaintSession {
     }
     const id = entry.id;
     this.marks = this.marks.filter((m) => !(m.tri === hit.tri && m.view === id)); // a second click on a triangle replaces its mark
-    this.marks.push({ tri: hit.tri, point: hit.point, normal: hit.normal, positive, view: id, state: resolveTriangleState(this.host.project, hit.object, hit.tri) });
+    this.marks.push({ tri: hit.tri, point: hit.point, normal: hit.normal, positive, view: id, state: resolveTriangleState(this.host.project, hit.object, hit.tri, hit.bary) });
     this.showMarks();
     void this.decode(entry);
   }
@@ -147,7 +149,7 @@ export class AiPaintSession {
     if (!this.active || this.pending || this.failed) return;
     const object = this.object, region = this.region, state = this.host.paintState();
     this.clear();
-    if (state !== null && region.length > 0) this.host.project.paintTriangles(object, region, state);
+    if (state !== null && regionSize(region) > 0) this.host.project.paintRegion(object, region, state);
   }
 
   /** Drops the marks, their views and the region (Escape, a tool change, the Print view). */
@@ -155,7 +157,7 @@ export class AiPaintSession {
     const shown = this.marks.length > 0 || this.views.length > 0;
     for (const v of [...this.views]) this.dropView(v);
     this.marks = [];
-    this.region = new Uint32Array(0);
+    this.region = EMPTY_REGION;
     if (shown && this.object >= 0) {
       this.host.view.setRegionHighlight(this.object, null);
       this.host.view.setMarks([]);
@@ -239,7 +241,7 @@ export class AiPaintSession {
   private updateRegion(): void {
     const first = this.marks.find((m) => m.positive);
     const splits = this.views.flatMap((v) => (v.split ? [v.split] : []));
-    let region: Uint32Array = new Uint32Array(0);
+    let region: Region = EMPTY_REGION;
     if (first && first.state > 0 && splits.length > 0) {
       const project = this.host.project;
       const seeds = combineViews(splits, project.objects[this.object].triCount, resolveDisplayStates(project, this.object), first.state);
@@ -249,7 +251,7 @@ export class AiPaintSession {
       }
     }
     this.region = region;
-    this.host.view.setRegionHighlight(this.object, region.length > 0 ? region : null);
+    this.host.view.setRegionHighlight(this.object, regionSize(region) > 0 ? region : null);
     this.report();
   }
 
@@ -264,7 +266,7 @@ export class AiPaintSession {
       status: this.pending ? "analyzing" : this.failed ? "failed" : "ready",
       positive,
       negative: this.marks.length - positive,
-      tris: this.region.length,
+      tris: regionSize(this.region),
       canCycle: !this.pending && !this.failed && !!last?.masks && last.points.length === 1 && last.masks.length > 1,
     });
   }

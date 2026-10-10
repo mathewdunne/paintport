@@ -1,5 +1,5 @@
 // Paint tool settings that outlive a page view: the slider values (brush size, smart fill edge
-// angle and feature size) and whether the smart fill Advanced section is open. Kept in
+// angle and feature size), "Split triangles" and whether the smart fill Advanced section is open. Kept in
 // localStorage like the export settings; every access is guarded the same way.
 import { clampRadius, DEFAULT_RADIUS } from "../tools/radius";
 import { clampSmartAngle, clampSmartScale, DEFAULT_SMART_ANGLE, DEFAULT_SMART_SCALE } from "../tools/sensitivity";
@@ -16,10 +16,12 @@ export interface PaintPrefs {
   /** Optional so older saved settings keep their unadjusted automatic feature size. */
   smartScaleSensitivity?: number;
   fillAdvancedOpen: boolean;
+  /** "Split triangles" for the brush and eraser (spec Q12.4). */
+  splitTriangles: boolean;
 }
 
 export function defaultPaintPrefs(): PaintPrefs {
-  return { radius: DEFAULT_RADIUS, smartAngle: DEFAULT_SMART_ANGLE, smartScale: DEFAULT_SMART_SCALE, fillAdvancedOpen: false };
+  return { radius: DEFAULT_RADIUS, smartAngle: DEFAULT_SMART_ANGLE, smartScale: DEFAULT_SMART_SCALE, fillAdvancedOpen: false, splitTriangles: true };
 }
 
 /** The saved preferences; anything missing or malformed keeps its default on its own, numbers are clamped. */
@@ -41,6 +43,7 @@ export function loadPaintPrefs(storage: KeyValueStorage | null = browserStorage(
     prefs.smartScaleSensitivity = Math.min(1, Math.max(0, r.smartScaleSensitivity));
   }
   if (typeof r.fillAdvancedOpen === "boolean") prefs.fillAdvancedOpen = r.fillAdvancedOpen;
+  if (typeof r.splitTriangles === "boolean") prefs.splitTriangles = r.splitTriangles;
   return prefs;
 }
 

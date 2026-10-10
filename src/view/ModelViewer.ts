@@ -4,6 +4,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { fitLongSide } from "../sam/image";
+import type { Region } from "../doc/paintField";
 import type { BrushTarget, PaintView, PickHit, SamCapture, ViewMark } from "../tools/types";
 import { BrushCursor } from "./brushCursor";
 import { DepthPass, MODEL_LAYER, OVERLAY_LAYER } from "./depthPass";
@@ -48,12 +49,12 @@ export class ModelViewer implements PaintView {
   private readonly camera = new PerspectiveCamera(FOV, 1, 0.1, 1000);
   private readonly controls: OrbitControls;
   private readonly colors = new ColorSurface();
-  private readonly material = createSurfaceMaterial(this.colors.table);
+  private readonly material = createSurfaceMaterial(this.colors.table, this.colors.atlas);
   private readonly resizeObserver: ResizeObserver;
   private readonly canvas: HTMLCanvasElement;
   private readonly raycaster = new Raycaster();
   private readonly depthPass = new DepthPass();
-  private readonly samPass = new SamPass(createSurfaceMaterial(this.colors.table, { highlight: false }));
+  private readonly samPass = new SamPass(createSurfaceMaterial(this.colors.table, this.colors.atlas, { highlight: false }));
   /** Bumped when the drawn colors change, so a SAM capture key changes with them. */
   private colorEpoch = 0;
   private readonly brushCursor = new BrushCursor();
@@ -62,7 +63,7 @@ export class ModelViewer implements PaintView {
   private readonly viewListeners = new Set<() => void>();
   private objects: ViewObjectEntry[] = [];
   private grid: GridHelper | null = null;
-  private highlighted: { entry: ViewObjectEntry; tris: Uint32Array } | null = null;
+  private highlighted: { entry: ViewObjectEntry; region: Region } | null = null;
   private depth: VisibilityTest | null = null;
   /** The pose the cached `depth` was rendered for: camera matrix, projection, viewport size, scene epoch. */
   private readonly depthPose = new Float64Array(35);
@@ -276,6 +277,7 @@ export class ModelViewer implements PaintView {
       point: [hit.point.x, hit.point.y, hit.point.z],
       normal: [hit.normal.x, hit.normal.y, hit.normal.z],
       distance: hit.distance,
+      bary: hit.bary,
     };
   }
 
@@ -305,14 +307,18 @@ export class ModelViewer implements PaintView {
     if (this.brushCursor.hide()) this.requestRender();
   }
 
-  setRegionHighlight(objectIndex: number, tris: Uint32Array | null): void {
+  setRegionHighlight(objectIndex: number, region: Region | null): void {
     const previous = this.highlighted;
-    if (previous) setTriangleHighlight(previous.entry.geo, previous.tris, false);
+    if (previous) {
+      setTriangleHighlight(previous.entry.geo, previous.region.tris, false);
+      this.colors.highlightPieces(previous.entry.index, null);
+    }
     this.highlighted = null;
-    const entry = tris && tris.length > 0 ? this.objects.find((o) => o.index === objectIndex) : undefined;
-    if (entry && tris) {
-      setTriangleHighlight(entry.geo, tris, true);
-      this.highlighted = { entry, tris };
+    const entry = region && (region.tris.length > 0 || region.pieces.size > 0) ? this.objects.find((o) => o.index === objectIndex) : undefined;
+    if (entry && region) {
+      setTriangleHighlight(entry.geo, region.tris, true);
+      this.colors.highlightPieces(objectIndex, region.pieces);
+      this.highlighted = { entry, region };
     }
     if (previous || this.highlighted) this.requestRender();
   }
@@ -340,9 +346,10 @@ export class ModelViewer implements PaintView {
     };
   }
 
-  isRegionHighlighted(objectIndex: number, tri: number): boolean {
+  isRegionHighlighted(objectIndex: number, tri: number, bary?: readonly [number, number, number]): boolean {
     const h = this.highlighted;
-    return !!h && h.entry.index === objectIndex && isTriangleHighlighted(h.entry.geo, tri);
+    if (!h || h.entry.index !== objectIndex) return false;
+    return isTriangleHighlighted(h.entry.geo, tri) || this.colors.isPieceHighlighted(objectIndex, tri, bary);
   }
 
   onViewChange(listener: () => void): () => void {

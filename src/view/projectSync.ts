@@ -1,4 +1,4 @@
-import { resolveDisplayStates, resolveStatesInto } from "../doc/display";
+import { resolveViewStates, resolveViewStatesInto } from "../doc/display";
 import type { Project } from "../doc/project";
 import type { ViewScene } from "./viewScene";
 
@@ -23,7 +23,7 @@ export function syncViewerToProject(project: Project, scene: ViewScene, viewer: 
   return project.subscribe((e) => {
     switch (e.kind) {
       case "paint": {
-        resolveStatesInto(project, e.object, e.tris, scene.objects[e.object].states);
+        resolveViewStatesInto(project, e.object, e.tris, scene.objects[e.object].states);
         viewer.updateTriangleStates(e.object, e.tris);
         break;
       }
@@ -37,7 +37,8 @@ export function syncViewerToProject(project: Project, scene: ViewScene, viewer: 
           const tris = new Uint32Array(part.triCount);
           let n = 0;
           for (let t = part.firstTri; t < part.firstTri + part.triCount; t++) {
-            if (field.stateAt(t) > 0) continue; // painted: shows its own state, not the base
+            // Painted: shows its own state, not the base. A split triangle holds the base for its unpainted pieces.
+            if (field.stateAt(t) > 0 && field.treeOf(t) === undefined) continue;
             states[t] = paintable[t] === 1 ? base : 0;
             tris[n++] = t;
           }
@@ -49,7 +50,7 @@ export function syncViewerToProject(project: Project, scene: ViewScene, viewer: 
         const colors = project.palette.map((c) => c.color);
         scene.palette = colors;
         if (e.renumbered) {
-          project.objects.forEach((_, i) => scene.objects[i].states.set(resolveDisplayStates(project, i)));
+          project.objects.forEach((_, i) => scene.objects[i].states.set(resolveViewStates(project, i)));
           viewer.refreshStates();
         }
         viewer.setPalette(colors);

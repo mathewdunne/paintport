@@ -39,6 +39,33 @@ TriangleSelector bitstream, serialized as a hex string **read right-to-left**, o
 A converter must remap **leaf states inside split trees too**, not just top-level
 single-state strings.
 
+### 2a. Where a split tree's leaves lie (PaintPort+ phase 5 spike, 2026-10-09)
+
+Needed to draw or paint below triangle resolution. Corners are the triangle's own
+`v1 v2 v3`, as listed in the model file; `s` is the special side and `M(a,b)` an edge midpoint.
+Rotate first: `R0 = V[s], R1 = V[(s+1)%3], R2 = V[(s+2)%3]`. Then, in **child order**:
+
+| split sides | children (child order) |
+|---|---|
+| 1 (the side opposite `R0` is cut) | `(R0, R1, M12)`, `(M12, R2, R0)` |
+| 2 (the two sides at `R0` are cut) | `(R0, M01, M02)`, `(M01, R1, M02)`, `(R1, R2, M02)` |
+| 3 (`s` is always 0) | `(R0, M01, M20)`, `(M01, R1, M12)`, `(M12, R2, M20)`, `(M01, M12, M20)` |
+
+**The string holds the children in reverse child order**: the first child read (right to
+left) is the last child, so a parser that keeps reading order must reverse each split's
+children before using the table. Each child's own corners, in the order given, are the
+`V` its own split rotates.
+
+Verified three ways (`spike/subtri/`, report in
+`docs/plans/2026-10-09-subtriangle-spike.md`): on real files from both ecosystems, paint
+sampled along shared edges agrees from both sides (93.6–99.8% on four large files, 81% on a
+benchy with only 203 split triangles, against 51–65% for the other child orders and
+rotations); PrusaSlicer 2.9.6's CLI prints a slab painted with all three split kinds exactly
+where the table says (100% of 1071 top-layer samples); and it prints a stroke from
+PaintPort's own sub-triangle brush where it was painted (100% of 2348 samples). Files
+painted with `paint_color` (two MakerWorld/Bambu projects) read the same way. That rests on
+the edge test alone: no Bambu Studio or Orca slice was run.
+
 ## 3. Virtual extruders: `Metadata/Prusa_Slicer_full_spectrum.json`
 
 PrusaSlicer 2.9.6 stores ColorMix (FullSpectrum) virtual extruders in this archive member.

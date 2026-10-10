@@ -10,6 +10,8 @@ export interface SurfaceHit {
   /** Unit face normal in world space, flipped to face the ray origin. */
   normal: Vector3;
   distance: number;
+  /** The point's barycentric coordinates in the triangle, in the order the document lists its corners. */
+  bary: [number, number, number];
 }
 
 /** Growable list of triangle ids, reused between brush dabs. */
@@ -66,7 +68,24 @@ export class ObjectPicker {
     const slot = hit.faceIndex;
     this.normalOfSlot(slot, faceNormal);
     if (faceNormal.dot(ray.direction) > 0) faceNormal.negate();
-    return { tri: this.triOfSlot[slot], point: hit.point.clone(), normal: faceNormal.clone(), distance: hit.distance };
+    return { tri: this.triOfSlot[slot], point: hit.point.clone(), normal: faceNormal.clone(), distance: hit.distance, bary: this.baryOfSlot(slot, hit.point) };
+  }
+
+  /** Barycentric coordinates of a point on slot `slot`'s triangle (slot vertex k is the document triangle's corner k). */
+  private baryOfSlot(slot: number, p: Vector3): [number, number, number] {
+    const pos = this.position, o = slot * 9;
+    const ax = pos[o], ay = pos[o + 1], az = pos[o + 2];
+    const v0x = pos[o + 3] - ax, v0y = pos[o + 4] - ay, v0z = pos[o + 5] - az;
+    const v1x = pos[o + 6] - ax, v1y = pos[o + 7] - ay, v1z = pos[o + 8] - az;
+    const v2x = p.x - ax, v2y = p.y - ay, v2z = p.z - az;
+    const d00 = v0x * v0x + v0y * v0y + v0z * v0z, d01 = v0x * v1x + v0y * v1y + v0z * v1z, d11 = v1x * v1x + v1y * v1y + v1z * v1z;
+    const d20 = v2x * v0x + v2y * v0y + v2z * v0z, d21 = v2x * v1x + v2y * v1y + v2z * v1z;
+    const den = d00 * d11 - d01 * d01;
+    if (!(Math.abs(den) > 0)) return [1 / 3, 1 / 3, 1 / 3]; // degenerate: any point will do
+    const clamp = (x: number) => Math.min(1, Math.max(0, x));
+    const v = clamp((d11 * d20 - d01 * d21) / den), w = clamp((d00 * d21 - d01 * d20) / den);
+    const sum = v + w > 1 ? v + w : 1;
+    return [1 - (v + w) / sum, v / sum, w / sum];
   }
 
   /**

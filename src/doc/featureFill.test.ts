@@ -17,19 +17,19 @@ describe("smart fill with a feature size", () => {
   it("crosses surface texture that stops the edge-by-edge fill, and stops at the groove", () => {
     const p = projectOf(mesh);
     const seed = triAt(1, 3);
-    const plain = p.smartFillRegion(0, seed, 20);
+    const plain = p.smartFillRegion(0, seed, 20).tris;
     expect(coverage(plain, xs, 0, 2.5)).toBeLessThan(0.5); // the texture breaks it up
 
-    const region = p.smartFillRegion(0, seed, 20, 0.3);
+    const region = p.smartFillRegion(0, seed, 20, 0.3).tris;
     expect(coverage(region, xs, 0, 2.6)).toBe(1);
     expect(coverage(region, xs, 3.4, 6)).toBe(0);
   });
 
   it("stops in the middle of the groove, where a fill from the other side stops too", () => {
     const p = projectOf(mesh);
-    const left = p.smartFillRegion(0, triAt(1, 3), 20, 0.3);
+    const left = p.smartFillRegion(0, triAt(1, 3), 20, 0.3).tris;
     p.paintTriangles(0, left, 2);
-    const right = p.smartFillRegion(0, triAt(5, 3), 20, 0.3);
+    const right = p.smartFillRegion(0, triAt(5, 3), 20, 0.3).tris;
     expect(coverage(left, xs, 2.75, 2.95)).toBeGreaterThan(0.9);
     expect(coverage(right, xs, 3.05, 3.25)).toBeGreaterThan(0.9);
     // Together they leave at most a thin seam unpainted.
@@ -39,7 +39,7 @@ describe("smart fill with a feature size", () => {
 
   it("fills a hole smaller than the feature size that the region surrounds", () => {
     const p = projectOf(texturedPlate({ crater: [20, 60] }));
-    const region = new Set(p.smartFillRegion(0, triAt(0.5, 0.5), 20, 0.3));
+    const region = new Set(p.smartFillRegion(0, triAt(0.5, 0.5), 20, 0.3).tris);
     // The crater floor: the 6 x 6 cells inside the ring.
     for (let j = 57; j < 63; j++) for (let i = 17; i < 23; i++) for (const t of [0, 1]) expect(region.has((j * SIZE + i) * 2 + t)).toBe(true);
   });
@@ -48,14 +48,14 @@ describe("smart fill with a feature size", () => {
     const p = projectOf(mesh);
     const wall = Array.from({ length: mesh.tris.length / 3 }, (_, t) => t).filter((t) => xs[t] >= 1.5 && xs[t] < 1.6);
     p.paintTriangles(0, wall, 2);
-    const region = p.smartFillRegion(0, triAt(0.5, 3), 20, 0.3);
+    const region = p.smartFillRegion(0, triAt(0.5, 3), 20, 0.3).tris;
     expect(coverage(region, xs, 0, 1.45)).toBe(1);
     expect(coverage(region, xs, 1.5, 6)).toBe(0);
   });
 
   it("is the edge-by-edge fill on a mesh whose triangles are as big as the feature size", () => {
     const p = projectOf(cubeMesh());
-    for (const angle of [30, 100]) expect(Array.from(p.smartFillRegion(0, 0, angle, 0.3))).toEqual(Array.from(p.smartFillRegion(0, 0, angle)));
+    for (const angle of [30, 100]) expect(Array.from(p.smartFillRegion(0, 0, angle, 0.3).tris)).toEqual(Array.from(p.smartFillRegion(0, 0, angle).tris));
     expect(featureBend(p.topology(0), 0.3)).toBeNull();
   });
 

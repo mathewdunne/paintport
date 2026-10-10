@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Sub-triangle render spike</title>
+    <style>
+      body { margin: 0; font: 13px system-ui, sans-serif; display: grid; grid-template-columns: 1fr 420px; height: 100vh; }
+      #view { position: relative; height: 100vh; overflow: hidden; }
+      #side { overflow: auto; padding: 8px; border-left: 1px solid #ccc; }
+      #side > * { margin: 4px 0; }
+      #log { white-space: pre-wrap; font: 12px ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <div id="view"></div>
+    <div id="side">
+      <div>
+        <button data-mode="dominant">Dominant leaf</button>
+        <button data-mode="tree">Shader tree walk</button>
+        <button data-mode="leaves">Leaf mesh</button>
+      </div>
+      <div><button id="bench">Benchmark current mode</button></div>
+      <div id="log"></div>
+    </div>
+    <script type="module" src="./view.ts"></script>
+  </body>
+</html>

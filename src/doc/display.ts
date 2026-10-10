@@ -7,14 +7,39 @@ import { NO_PART } from "./types";
  * base state of its part. This is the eyedropper: the picked color is the state returned
  * here. 0 for triangles that are not print surface (they show nothing).
  */
-export function resolveTriangleState(project: Project, objectIndex: number, tri: number): State {
+export function resolveTriangleState(project: Project, objectIndex: number, tri: number, bary?: readonly [number, number, number]): State {
   const object = project.objects[objectIndex];
   if (object.paintable[tri] !== 1) return 0;
-  const painted = project.fields[objectIndex].stateAt(tri);
+  const painted = project.fields[objectIndex].stateAt(tri, bary);
   if (painted > 0) return painted;
+  return baseStateOf(project, objectIndex, tri);
+}
+
+/** The base state of the triangle's part (0 when it has none). */
+function baseStateOf(project: Project, objectIndex: number, tri: number): State {
+  const object = project.objects[objectIndex];
   const part = object.triPart[tri];
   if (part === NO_PART) return 0;
   return project.baseColor.get(object.parts[part].id) ?? 0;
+}
+
+/**
+ * What the viewer's state attribute holds for a triangle: the state it shows, except for a
+ * split triangle, whose pieces the shader draws from its tree: there it is the part's base,
+ * the color of the tree's unpainted leaves.
+ */
+export function resolveViewState(project: Project, objectIndex: number, tri: number): State {
+  const object = project.objects[objectIndex];
+  if (object.paintable[tri] !== 1) return 0;
+  if (project.fields[objectIndex].treeOf(tri) !== undefined) return baseStateOf(project, objectIndex, tri);
+  return resolveTriangleState(project, objectIndex, tri);
+}
+
+/** `resolveViewState` for every triangle of an object, as a fresh array. */
+export function resolveViewStates(project: Project, objectIndex: number): Uint16Array {
+  const out = resolveDisplayStates(project, objectIndex);
+  for (const t of project.fields[objectIndex].trees().keys()) out[t] = resolveViewState(project, objectIndex, t);
+  return out;
 }
 
 /** `resolveTriangleState` for every triangle of an object, as a fresh array. */
@@ -41,6 +66,11 @@ export function resolveDisplayStates(project: Project, objectIndex: number): Uin
  */
 export function resolveStatesInto(project: Project, objectIndex: number, tris: ArrayLike<number>, out: Uint16Array): void {
   for (let i = 0; i < tris.length; i++) out[tris[i]] = resolveTriangleState(project, objectIndex, tris[i]);
+}
+
+/** `resolveStatesInto` with `resolveViewState`: the viewer's incremental update for a "paint" event. */
+export function resolveViewStatesInto(project: Project, objectIndex: number, tris: ArrayLike<number>, out: Uint16Array): void {
+  for (let i = 0; i < tris.length; i++) out[tris[i]] = resolveViewState(project, objectIndex, tris[i]);
 }
 
 /**

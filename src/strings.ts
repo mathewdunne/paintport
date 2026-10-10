@@ -98,6 +98,8 @@ export const strings = {
     brush: "Brush",
     brushSize: "Brush size",
     radiusValue: (mm: string) => `${mm} mm`,
+    splitTriangles: "Split triangles",
+    splitTrianglesHint: "Paint finer than the model's triangles at the edge of the brush.",
     paintThrough: "Paint through",
     paintThroughHint: "Also paint hidden and back-facing surface inside the brush.",
     smartFill: "Smart and guided fill",

@@ -14,6 +14,12 @@ export interface ViewObject {
   states: Uint16Array;
   /** 1 = draw this triangle, 0 = skip it (negative volumes, modifiers, ...). */
   mask: Uint8Array;
+  /**
+   * Sub-triangle trees by triangle (design states, the document's internal dialect), drawn piece
+   * by piece; `states` then holds the part's base, the color of unpainted pieces. Read live: the
+   * caller changes entries and then calls `ModelViewer.updateTriangleStates`. Absent = none.
+   */
+  trees?: ReadonlyMap<number, string>;
 }
 
 export interface ViewScene {

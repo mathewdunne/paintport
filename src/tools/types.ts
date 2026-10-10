@@ -1,5 +1,5 @@
 import type { ImageCamera, SamImage, Visibility } from "../sam/types";
-import type { State, Vec3 } from "../doc/paintField";
+import type { Region, State, Vec3 } from "../doc/paintField";
 
 export type ToolId = "brush" | "shellFill" | "smartFill" | "guidedFill" | "aiPaint" | "eraser" | "replaceColor" | "eyedropper";
 
@@ -12,6 +12,11 @@ export interface PaintSettings {
   radius: number;
   /** Paint everything inside the brush sphere, not only surface visible from the camera. */
   paintThrough: boolean;
+  /**
+   * "Split triangles" (spec Q12): the brush and eraser cut the triangles the sphere's surface
+   * crosses into pieces (down to `splitLimit`) instead of painting them whole.
+   */
+  splitTriangles: boolean;
   /** Smart fill stops at edges sharper than this many degrees. */
   smartAngle: number;
   /**
@@ -33,6 +38,8 @@ export interface PickHit {
   normal: Vec3;
   /** Distance from the camera. */
   distance: number;
+  /** The point's barycentric coordinates in `tri` (its corners in document order), for split triangles; absent = the triangle as a whole. */
+  bary?: readonly [number, number, number];
 }
 
 /** A guided fill mark to draw: inside (paint here) or outside (keep out). World space. */
@@ -73,9 +80,10 @@ export interface PaintView {
   pixelSizeAt(distance: number): number;
   showBrushCursor(hit: PickHit, radius: number, erase: boolean): void;
   hideBrushCursor(): void;
-  /** Highlights a region of triangles (a fill preview); null clears it. */
-  setRegionHighlight(object: number, tris: Uint32Array | null): void;
-  isRegionHighlighted(object: number, tri: number): boolean;
+  /** Highlights a region (a fill preview: whole triangles and pieces of split ones); null clears it. */
+  setRegionHighlight(object: number, region: Region | null): void;
+  /** Whether a surface point is in the highlighted region (for a split triangle, the piece at `bary`). */
+  isRegionHighlighted(object: number, tri: number, bary?: readonly [number, number, number]): boolean;
   /** Draws the guided fill marks; an empty list clears them. */
   setMarks(marks: readonly ViewMark[]): void;
   /** The current pose for SAM, with an image whose long side is `size`; null without a model. */

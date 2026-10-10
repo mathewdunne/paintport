@@ -66,6 +66,18 @@ describe("ObjectPicker", () => {
     expect(picker.raycast(new Ray(new Vector3(50, -100, 0), new Vector3(0, 1, 0)))).toBeNull();
   });
 
+  it("reports the hit point's barycentric coordinates in the triangle's corner order", () => {
+    const soup = gridBox([-10, -10, -10], [10, 10, 10], 4);
+    const picker = pickerOf(soup);
+    const hit = picker.raycast(new Ray(new Vector3(1.3, -100, 2.7), new Vector3(0, 1, 0)))!;
+    const [u, v, w] = hit.bary;
+    expect(u + v + w).toBeCloseTo(1);
+    expect(Math.min(u, v, w)).toBeGreaterThanOrEqual(0);
+    const p = soup.slice(hit.tri * 9, hit.tri * 9 + 9);
+    const x = p[0] * u + p[3] * v + p[6] * w, y = p[1] * u + p[4] * v + p[7] * w, z = p[2] * u + p[5] * v + p[8] * w;
+    expect([x, y, z].map((c) => +c.toFixed(6))).toEqual([1.3, -10, 2.7]);
+  });
+
   it("maps slots back to document triangle ids when some triangles are not drawn", () => {
     const soup = gridBox([-10, -10, -10], [10, 10, 10], 1); // 12 triangles
     // Draw only the odd triangles: document id 2k+1 lives in slot k.

@@ -1,4 +1,4 @@
-import { printSurfaceMask, resolveDisplayStates } from "../doc/display";
+import { printSurfaceMask, resolveViewStates } from "../doc/display";
 import type { Project } from "../doc/project";
 import type { ViewScene } from "./viewScene";
 
@@ -11,8 +11,9 @@ export function projectToScene(project: Project): ViewScene {
       vertices: project.fields[i].mesh.vertices,
       tris: project.fields[i].mesh.tris,
       transform: o.transform,
-      states: resolveDisplayStates(project, i),
+      states: resolveViewStates(project, i),
       mask: printSurfaceMask(project, i),
+      trees: project.fields[i].trees(),
     })),
   };
 }

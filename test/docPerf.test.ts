@@ -35,19 +35,19 @@ describe.skipIf(!process.env.PERF)("1.3M-triangle object", () => {
     expect(topo.stats.nonManifoldEdges).toBe(0);
 
     time("face normals (first smart fill only)", () => topo.faceNormals());
-    const shell = time("shell fill (whole sphere)", () => p.shellFillRegion(0, 12345));
+    const shell = time("shell fill (whole sphere)", () => p.shellFillRegion(0, 12345).tris);
     expect(shell.length).toBe(n);
-    const all1 = time("smart fill 30 deg, whole sphere (first call)", () => p.smartFillRegion(0, 12345, 30));
+    const all1 = time("smart fill 30 deg, whole sphere (first call)", () => p.smartFillRegion(0, 12345, 30).tris);
     expect(all1.length).toBe(n);
-    time("smart fill 30 deg, whole sphere (again)", () => p.smartFillRegion(0, 54321, 30));
-    const tiny = time("smart fill 0.1 deg (a quad)", () => p.smartFillRegion(0, 650100, 0.1));
+    time("smart fill 30 deg, whole sphere (again)", () => p.smartFillRegion(0, 54321, 30).tris);
+    const tiny = time("smart fill 0.1 deg (a quad)", () => p.smartFillRegion(0, 650100, 0.1).tris);
     expect(tiny.length).toBeLessThanOrEqual(2);
 
     // A paint band around the equator bounds the fill to the northern cap.
     const band: number[] = [];
     for (let t = 0; t < n; t++) { const ring = Math.floor((t - 0) / (2 * SEGMENTS)); if (ring >= 300 && ring < 305) band.push(t); }
     time(`paintTriangles (${band.length} tris, a band)`, () => p.paintTriangles(0, band, 2));
-    const cap = time("smart fill bounded by that band", () => p.smartFillRegion(0, 100, 30));
+    const cap = time("smart fill bounded by that band", () => p.smartFillRegion(0, 100, 30).tris);
     console.log(`  northern cap: ${cap.length} triangles`);
     expect(cap.length).toBeGreaterThan(n / 4);
     expect(cap.length).toBeLessThan(n / 2);

@@ -17,6 +17,8 @@ export interface ObjectGeometry {
   vertexStates: Uint16Array;
   /** The geometry's highlight attribute data (1 byte per vertex, 255 = highlighted). */
   highlight: Uint8Array;
+  /** The geometry's tree attribute data (1 per vertex): the triangle's tree root in the tree atlas + 1, 0 = none. */
+  treeRoots: Float32Array;
   slotOfTri: Int32Array;
   slotCount: number;
 }
@@ -55,7 +57,9 @@ export function buildObjectGeometry(obj: ViewObject): ObjectGeometry {
   geometry.setAttribute("state", new BufferAttribute(vertexStates, 1)); // read as a float in the shader
   const highlight = new Uint8Array(slotCount * 3);
   geometry.setAttribute("highlight", new BufferAttribute(highlight, 1, true));
-  const result: ObjectGeometry = { geometry, vertexStates, highlight, slotOfTri, slotCount };
+  const treeRoots = new Float32Array(slotCount * 3); // exact integers up to 2^24
+  geometry.setAttribute("tree", new BufferAttribute(treeRoots, 1));
+  const result: ObjectGeometry = { geometry, vertexStates, highlight, treeRoots, slotOfTri, slotCount };
   for (let i = 0; i < triCount; i++) if (slotOfTri[i] >= 0) writeTriangleState(result, i, states[i]);
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
@@ -113,6 +117,25 @@ export function updateTriangleStates(g: ObjectGeometry, states: Uint16Array, tri
     slots[n++] = slot;
   }
   flagSlotRanges(g, g.geometry.getAttribute("state") as BufferAttribute, slots, n, 3);
+}
+
+/**
+ * Rewrites the tree attribute of the given document triangles from `rootOf` (tree atlas root + 1,
+ * 0 = none) and flags the changed ranges for upload.
+ */
+export function updateTriangleTrees(g: ObjectGeometry, triIndices: ArrayLike<number>, rootOf: (tri: number) => number): void {
+  const slots = new Int32Array(triIndices.length);
+  let n = 0;
+  for (let i = 0; i < triIndices.length; i++) {
+    const tri = triIndices[i];
+    const slot = g.slotOfTri[tri];
+    if (slot === undefined || slot < 0) continue;
+    const root = rootOf(tri);
+    if (g.treeRoots[slot * 3] === root) continue;
+    g.treeRoots[slot * 3] = root; g.treeRoots[slot * 3 + 1] = root; g.treeRoots[slot * 3 + 2] = root;
+    slots[n++] = slot;
+  }
+  flagSlotRanges(g, g.geometry.getAttribute("tree") as BufferAttribute, slots, n, 3);
 }
 
 /** Marks the given document triangles as highlighted (or not) for the region preview. */

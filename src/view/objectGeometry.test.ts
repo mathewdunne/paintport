@@ -1,6 +1,6 @@
 import { ShaderLib, type BufferAttribute } from "three";
 import { describe, expect, it } from "vitest";
-import { patchVertexShader } from "./material";
+import { patchFragmentShader, patchVertexShader } from "./material";
 import { buildObjectGeometry, isTriangleHighlighted, rebuildStates, setTriangleHighlight, updateTriangleStates } from "./objectGeometry";
 import type { ViewObject } from "./viewScene";
 
@@ -183,5 +183,32 @@ describe("patchVertexShader", () => {
 
   it("throws if the shader has no color_vertex include (three.js changed)", () => {
     expect(() => patchVertexShader("void main() {}")).toThrow();
+  });
+
+  it("passes the tree root, the base state and the corner's barycentrics to the fragment walk", () => {
+    const patched = patchVertexShader(ShaderLib.lambert.vertexShader);
+    expect(patched).toContain("attribute float tree;");
+    expect(patched).toContain("flat varying highp uint vPpTree;");
+    expect(patched).toContain("vPpTree = uint( tree + 0.5 );");
+    expect(patched).toContain("gl_VertexID");
+  });
+});
+
+describe("patchFragmentShader", () => {
+  it("walks the tree after color_fragment and keeps the include", () => {
+    const patched = patchFragmentShader(ShaderLib.lambert.fragmentShader);
+    expect(patched).toContain("uniform highp usampler2D ppTreeNodes;");
+    expect(patched).toContain("#include <color_fragment>\n\tif ( vPpTree > 0u )");
+    expect(patched).toContain("ppTreeLeaf( vPpTree - 1u, vPpBary )");
+    expect(patched).toContain("0x40000000u");
+  });
+
+  it("can leave the highlight out", () => {
+    const patched = patchFragmentShader(ShaderLib.lambert.fragmentShader, false);
+    expect(patched).not.toContain("( ppWord & 0x40000000u )");
+  });
+
+  it("throws if the shader has no color_fragment include (three.js changed)", () => {
+    expect(() => patchFragmentShader("void main() {}")).toThrow();
   });
 });

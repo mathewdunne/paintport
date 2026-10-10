@@ -27,7 +27,7 @@ function setup(soup: number[], angle = 30) {
   const view: AiView = {
     captureSam: () => capture,
     setMarks: (m) => { marks.push(m); },
-    setRegionHighlight: (_object, tris) => { region = tris; },
+    setRegionHighlight: (_object, r) => { region = r ? r.tris : null; },
   };
   const session = new AiPaintSession({
     project, view,
