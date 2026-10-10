@@ -69,6 +69,53 @@ Palette operations (Q5.3):
   into base.
 - **Eyedropper**: Alt+click (or `I`) picks the design color under the cursor.
 
+### Blend ratios and the palette print picker (Q13.0–Q13.6)
+Blend predictions are rough (Yule–Nielsen). On the user's full-spectrum palette, the colors
+PrusaSlicer stored for its virtual extruders are 3–19 ΔE away from PaintPort's prediction of
+the same recipe, worst with white. A printed test palette is the real reference, so the
+user can pick a blend by looking at the print.
+
+- **Suggestion ratios (Q13.0, done)**: Auto and the dropdown's blend list try the classic
+  1:1, 1:3, 3:1, 1:1:1 plus a full-spectrum palette's ratios: 85/15 and 15/85 for two spools;
+  for three, one at 50 % and the others at 15/35, 25/25 or 35/15 (`MIX_RATIOS` in
+  `src/core/mix.ts`). The core's `topMixes`/`bestMix` default to the classic set, which the
+  parity suite compares; the app passes the full set. Blends are named by percent shares
+  ("S3 85% + S4 15%"), as PrusaSlicer lists them.
+- **Source (Q13.1)**: the palette is loaded from the palette print's own 3MF (a button in the
+  Export tab), not from a bundled image or layout. Only PrusaSlicer palettes for now (the
+  only format whose recipes are read). One dot per **part** (ModelPart) of any object:
+  - its position and size are the part's top-down footprint in bed coordinates (its
+    object's build-item transform applied; bounding box of its triangles in XY: center,
+    radius = larger half extent; draw order by top Z);
+  - its target is the part's extruder: a physical extruder is a spool, a virtual extruder is
+    its full-spectrum recipe, stored by **spool color** (the file's physical colors) and
+    integer weights (the import's `recipeWeights`);
+  - its color is the one the file stores (PrusaSlicer's own color for a virtual extruder);
+  - its name is the part's name (e.g. "7 B-R 85-15");
+  - a part whose footprint contains the centers of 3 or more other dots is a **backdrop**
+    (the palette's base plate): drawn, not clickable.
+
+  A file without dots (no parts with a known extruder color, e.g. palettes made with paint
+  instead of parts) is refused with a message.
+- **Hints (Q13.2)**: layout only. Dots are filled with the file's stored colors; there is no
+  "closest dot" ranking, since the predictions are too rough to point anywhere.
+- **Spools (Q13.3)**: dots match by color. A dot is usable when every spool color it needs is
+  on an active spool (exact normalized hex; when a color is on two spools, the lower slot).
+  Otherwise it is greyed out, naming the missing color. Blend dots are also greyed out while
+  "Allow ColorMix" is off.
+- **How many (Q13.4)**: one palette, kept in localStorage (`paintportplus.palette`, only the
+  dots: a few KB) like the spools; loading another replaces it, and it can be removed. It is
+  an app setting, not project data.
+- **Picker (Q13.5)**: with a palette loaded, each mapping row's dropdown ends with "Pick from
+  palette…", which opens a dialog: the design color being matched, and the dots laid out as
+  printed (bed Y up, so the front of the print is at the bottom). Hovering or focusing a dot
+  shows its name and recipe (by slot, "S3 85% + S4 15%", when usable; otherwise the reason it
+  is greyed out); the dot matching the row's current recipe is ringed. Clicking a
+  usable dot pins its spool or blend (a normal mapping pin) and closes the dialog. Dots are
+  buttons (Tab, Enter).
+- **Later, not now (Q13.6)**: recording a dot's real color (rankings and Print view from
+  real colors), several palettes, rotating the map, Bambu/Snapmaker palettes.
+
 ### Base color (Q3.4)
 Each object/part has a base design color, taken from the file's default extruder.
 Unpainted triangles show it, the eraser returns triangles to it, and changing it recolors
@@ -595,3 +642,10 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q12.5 | Smaller decisions (not asked) | Hover, eyedropper and Alt+click read the piece; the toggle covers the eraser and Shift-erase; visible-only stays per triangle; brushing with the toggle off repaints touched triangles whole |
 | Q12.6 | Process | Task plan first, then built straight through, one check-in at the end |
 | Q12.7 | File size warning | None; revisit if real files get slow |
+| Q13.0 | Blend suggestion ratios | Classic ratios plus 85/15, 15/85 and 50 % + 15/35, 25/25, 35/15 (three spools), in Auto and the dropdown; the core's default stays classic for parity |
+| Q13.1 | Palette source | Loaded from the palette print's 3MF: one dot per part (footprint, file color, spool or recipe); not a bundled image or layout |
+| Q13.2 | Finding a dot | Layout only, dots in the file's stored colors; no closest-match rings |
+| Q13.3 | Different spools | Match by color; dots needing a missing color are greyed out with the reason |
+| Q13.4 | Number of palettes | One, kept like the spools; loading another replaces it |
+| Q13.5 | Picker | "Pick from palette…" at the end of each mapping dropdown opens a dialog; a click pins (design, not asked) |
+| Q13.6 | Later | Real dot colors, several palettes, rotation, bbs palettes |
