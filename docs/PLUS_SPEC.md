@@ -651,6 +651,7 @@ mid-range desktop GPU, and import of a 1M-triangle 3MF in a few seconds.
 | Q12.5 | Smaller decisions (not asked) | Hover, eyedropper and Alt+click read the piece; the toggle covers the eraser and Shift-erase; visible-only stays per triangle; brushing with the toggle off repaints touched triangles whole |
 | Q12.6 | Process | Task plan first, then built straight through, one check-in at the end |
 | Q12.7 | File size warning | None; revisit if real files get slow |
+| Q12.8 | Cutting slivers (not asked, confirmed after) | A piece already thinner than the cut limit is cut only on its longest side, not on all three: a cut cap's fan of slivers otherwise stacked hundreds of rows across its width, hit the piece budget and made brushing lag |
 | Q13.0 | Blend suggestion ratios | Classic ratios plus 85/15, 15/85 and 50 % + 15/35, 25/25, 35/15 (three spools), in Auto and the dropdown; the core's default stays classic for parity |
 | Q13.1 | Palette source | Loaded from the palette print's 3MF: one dot per part (footprint, file color, spool or recipe); not a bundled image or layout |
 | Q13.2 | Finding a dot | Layout only, dots in the file's stored colors; no closest-match rings |

@@ -75,8 +75,11 @@ export class TreeAtlas {
     return this.data;
   }
 
-  /** Stores (or with `tree` undefined, removes) a triangle's tree. Returns its root index + 1, 0 for none. */
-  set(object: number, tri: number, tree: string | undefined): number {
+  /**
+   * Stores (or with `tree` undefined, removes) a triangle's tree. Returns its root index + 1, 0 for none.
+   * `parsed` is `tree` already parsed, if the caller has it (saves the parse).
+   */
+  set(object: number, tri: number, tree: string | undefined, parsed?: TreeNode): number {
     const byTri = this.entries.get(object);
     const old = byTri?.get(tri);
     if (old && old.tree === tree) return old.root + 1;
@@ -85,7 +88,7 @@ export class TreeAtlas {
       byTri!.delete(tri);
     }
     if (tree === undefined) return 0;
-    const root = parseTree(tree);
+    const root = parsed ?? parseTree(tree);
     if (isLeaf(root)) return 0;
     const entry = this.write(tree, root);
     let map = byTri;
@@ -169,17 +172,32 @@ export class TreeAtlas {
     old.dispose();
   }
 
-  /** Rewrites every live tree at the start of the buffer. */
+  /**
+   * Moves every live tree down to the start of the buffer, in buffer order so a move never
+   * overwrites a tree not yet moved. A tree's words are one block whose child links are absolute,
+   * so a move shifts the links; leaves keep their state and highlight bits.
+   */
   private compact(): void {
-    const all: [number, number, Entry][] = [];
-    for (const [object, byTri] of this.entries) for (const [tri, e] of byTri) all.push([object, tri, e]);
-    this.used = 1;
-    this.garbage = 0;
-    for (const [object, tri, e] of all) {
-      const fresh = this.write(e.tree, parseTree(e.tree));
-      this.entries.get(object)!.set(tri, fresh);
-      if (e.highlighted) this.highlight(object, tri, e.highlighted);
+    const all: Entry[] = [];
+    for (const byTri of this.entries.values()) for (const e of byTri.values()) all.push(e);
+    all.sort((a, b) => a.root - b.root);
+    const data = this.data;
+    let at = 1;
+    for (const e of all) {
+      const shift = at - e.root;
+      if (shift !== 0) {
+        data.copyWithin(at, e.root, e.root + e.size);
+        for (let w = at; w < at + e.size; w++) {
+          const word = data[w];
+          if (word & SPLIT_BIT) data[w] = ((word & ~CHILD_MASK) | ((word & CHILD_MASK) + shift)) >>> 0;
+        }
+        e.root = at;
+        for (let i = 0; i < e.leaves.length; i++) e.leaves[i] += shift;
+      }
+      at += e.size;
     }
+    this.used = at;
+    this.garbage = 0;
     this.texture.needsUpdate = true;
     this.texture.clearUpdateRanges(); // the whole texture uploads
     this.wholeUpload = true;

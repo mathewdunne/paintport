@@ -84,11 +84,14 @@ export class ColorSurface {
   /** Stores the triangles' trees (or drops them) in the atlas and writes their tree attribute. */
   private updateTrees(objectIndex: number, triIndices: ArrayLike<number>): void {
     const geo = this.geos.get(objectIndex);
-    const trees = this.data?.objects[objectIndex].trees;
+    const obj = this.data?.objects[objectIndex];
+    const trees = obj?.trees;
     if (!geo || !this.data || !trees) return;
     for (let i = 0; i < triIndices.length; i++) {
       const tri = triIndices[i];
-      if (geo.slotOfTri[tri] >= 0) this.atlas.set(objectIndex, tri, trees.get(tri));
+      if (geo.slotOfTri[tri] < 0) continue;
+      const tree = trees.get(tri);
+      this.atlas.set(objectIndex, tri, tree, tree !== undefined ? obj.treeRoot?.(tri) : undefined);
     }
     if (this.atlas.takeCompacted()) {
       // Every tree moved: rewrite every object's roots.

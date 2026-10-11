@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addLeafStates, childCorners, emitTree, leafIndexAt, MAX_TREE_LEAVES, paintSphereTree, paintTreeLeaves, parseTree, ROOT_BARY,
-  stateAtBary, treeDominant, treeLeaves, type Bary, type BaryTri, type TreeNode,
+  stateAtBary, treeDominant, treeLeaves, treeSummary, type Bary, type BaryTri, type TreeNode,
 } from "./splitTree";
 import type { Vec3 } from "./paintField";
 
@@ -71,6 +71,25 @@ describe("tree edits", () => {
     expect(checked).toBeGreaterThan(1500);
   });
 
+  it("cuts a sliver thinner than the limit only along its length, still exact up to the limit", () => {
+    // Like a cut cap's fan: 35 mm long, 0.06 mm tall.
+    const sliver: [Vec3, Vec3, Vec3] = [[0, 0, 0], [35, 0, 0], [12, 0.06, 0]];
+    const pos = (b: Bary): Vec3 => { const at = (k: number) => sliver[0][k] * b[0] + sliver[1][k] * b[1] + sliver[2][k] * b[2]; return [at(0), at(1), at(2)]; };
+    const center: Vec3 = [20, 0, 0], radius = 0.8, limit = 0.1;
+    const t = paintSphereTree(leaf(0), sliver, center, radius, 2, limit);
+    // About two pieces per limit along the 35 mm, not 2^9 rows across the width as well.
+    expect(treeLeaves(t).length).toBeLessThan(200);
+    let checked = 0;
+    for (let i = 0; i <= 2000; i++) for (const v of [0.1, 0.5, 0.9]) {
+      const u = i / 2000, b: Bary = [(1 - u) * (1 - v), u * (1 - v), v]; // along the sliver, at a few heights
+      const d = Math.hypot(pos(b)[0] - center[0], pos(b)[1] - center[1]);
+      if (Math.abs(d - radius) <= limit) continue;
+      expect(stateAtBary(t, b), `at ${pos(b)}`).toBe(d < radius ? 2 : 0);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(5000);
+  });
+
   it("returns the same node when nothing changes", () => {
     const t = leaf(3);
     expect(paintSphereTree(t, corners, [500, 500, 0], 5, 2, 1)).toBe(t); // misses
@@ -113,5 +132,25 @@ describe("tree edits", () => {
     const into = new Set<number>();
     addLeafStates(split(1, 0, [leaf(0), leaf(6)]), into);
     expect([...into]).toEqual([6]);
+  });
+
+  it("summarizes a tree in one pass like the separate helpers", () => {
+    let t: TreeNode = leaf(0);
+    for (let i = 0; i < 12; i++) t = paintSphereTree(t, corners, [10 + i * 5, 20 + (i % 3) * 7, 0], 6, 1 + (i % 4), 0.8);
+    for (const tree of [t, SLAB, leaf(5)]) {
+      const states = new Set<number>();
+      addLeafStates(tree, states, true);
+      expect(treeSummary(tree)).toEqual({ dominant: treeDominant(tree), states, leaves: treeLeaves(tree).length });
+    }
+  });
+
+  it("paints the same with the leaf count given", () => {
+    let t: TreeNode = leaf(0);
+    for (let i = 0; i < 30; i++) {
+      const counted = paintSphereTree(t, corners, [5 + i * 3, 20, 0], 4, 1 + (i % 3), 0.05);
+      expect(paintSphereTree(t, corners, [5 + i * 3, 20, 0], 4, 1 + (i % 3), 0.05, treeLeaves(t).length)).toEqual(counted);
+      t = counted;
+    }
+    expect(treeLeaves(t).length).toBeGreaterThan(MAX_TREE_LEAVES - 4); // the budget path ran too
   });
 });

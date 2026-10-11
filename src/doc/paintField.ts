@@ -7,6 +7,7 @@
 // records undo steps and notifies the viewer. Calling a field's edit methods directly
 // bypasses all of that.
 import type { PaintDialect } from "../core";
+import type { TreeNode } from "./splitTree";
 
 /** Design-palette index; 0 = unpainted (the part's base color). */
 export type State = number;
@@ -96,6 +97,9 @@ export interface PaintFieldView {
 
   /** Every sub-triangle tree by triangle. The field's live storage: read only. */
   trees(): ReadonlyMap<number, string>;
+
+  /** The triangle's tree, parsed (cached per tree; read only); undefined without one. */
+  parsedTreeOf(tri: number): TreeNode | undefined;
 
   /** The states a split triangle's leaves use, 0 for unpainted pieces (cached per tree); undefined without a tree. */
   leafStates(tri: number): ReadonlySet<number> | undefined;

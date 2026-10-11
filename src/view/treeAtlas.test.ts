@@ -142,6 +142,34 @@ describe("TreeAtlas", () => {
     expect(walkAtlas(atlas.words, root, c) & HIGHLIGHT_BIT).not.toBe(0);
   });
 
+  it("keeps every tree through a compaction when trees are stored out of object order", () => {
+    const atlas = new TreeAtlas();
+    const a = strokeTree(1, 12), b = strokeTree(2, 12), c = strokeTree(4, 12);
+    atlas.set(1, 0, emitTree(a));
+    atlas.set(0, 0, emitTree(b));
+    atlas.set(1, 0, emitTree(c)); // object 1 now sits after object 0 in the buffer
+    atlas.highlight(0, 0, new Set([1]));
+    let compacted = false;
+    for (let round = 0; round < 400 && !compacted; round++) {
+      atlas.set(2, 0, emitTree(strokeTree(round % 30, 12)));
+      compacted = atlas.takeCompacted();
+    }
+    expect(compacted).toBe(true);
+    expectLeaves(atlas.words, atlas.rootOf(1, 0) - 1, c, "object 1");
+    expectLeaves(atlas.words, atlas.rootOf(0, 0) - 1, b, "object 0");
+    const l1 = treeLeaves(b)[1];
+    const at = l1.tri.map((_, k) => (l1.tri[0][k] + l1.tri[1][k] + l1.tri[2][k]) / 3) as Bary;
+    expect(walkAtlas(atlas.words, atlas.rootOf(0, 0) - 1, at) & HIGHLIGHT_BIT).not.toBe(0);
+  });
+
+  it("stores a tree the caller already parsed like the string", () => {
+    const tree = strokeTree(5, 12);
+    const fromString = new TreeAtlas(), fromRoot = new TreeAtlas();
+    fromString.set(0, 0, emitTree(tree));
+    fromRoot.set(0, 0, emitTree(tree), tree);
+    expect(Array.from(fromRoot.words.subarray(0, 4096))).toEqual(Array.from(fromString.words.subarray(0, 4096)));
+  });
+
   it("uploads every tree after the texture grows (renders between dabs)", () => {
     const atlas = new TreeAtlas();
     const gpu = new GpuMirror();

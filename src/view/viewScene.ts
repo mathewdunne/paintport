@@ -1,3 +1,5 @@
+import type { TreeNode } from "../doc/splitTree";
+
 // What the viewer needs to know about a document. Plain arrays only, so the view stays
 // independent of the document classes.
 export interface ViewObject {
@@ -20,6 +22,8 @@ export interface ViewObject {
    * caller changes entries and then calls `ModelViewer.updateTriangleStates`. Absent = none.
    */
   trees?: ReadonlyMap<number, string>;
+  /** `trees.get(tri)` already parsed, if the caller keeps it (saves the viewer a parse per changed tree). */
+  treeRoot?: (tri: number) => TreeNode | undefined;
 }
 
 export interface ViewScene {

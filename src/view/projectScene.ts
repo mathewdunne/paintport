@@ -14,6 +14,7 @@ export function projectToScene(project: Project): ViewScene {
       states: resolveViewStates(project, i),
       mask: printSurfaceMask(project, i),
       trees: project.fields[i].trees(),
+      treeRoot: (tri) => project.fields[i].parsedTreeOf(tri),
     })),
   };
 }

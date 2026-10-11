@@ -1,7 +1,7 @@
 import { emitPaintTree, remapPaintString, type PaintDialect } from "../core";
 import type { BrushOpts, EditableMesh, EditRecord, PaintField, Region, State, Vec3 } from "./paintField";
 import { INTERNAL_DIALECT, remapTree } from "./paintTree";
-import { addLeafStates, emitTree, isLeaf, paintSphereTree, paintTreeLeaves, parseTree, stateAtBary, treeDominant, type TreeNode } from "./splitTree";
+import { emitTree, isLeaf, paintSphereTree, paintTreeLeaves, parseTree, stateAtBary, treeSummary, type TreeNode } from "./splitTree";
 import { sqDistPointTriangle } from "./triangleMath";
 
 export { isSplitTree } from "./paintTree";
@@ -42,6 +42,13 @@ function diffEdit(tris: Uint32Array, before: Uint16Array, after: Uint16Array | n
   return { kind: "diff", size: tris.length, bytes, tris, before, after, preservedBefore: pb, preservedAfter: pa };
 }
 
+interface ParsedTree {
+  tree: string;
+  root: TreeNode;
+  states: Set<number>;
+  leaves: number;
+}
+
 const asDiff = (e: EditRecord): DiffEdit => {
   if ((e as DiffEdit).kind !== "diff") throw new TypeError("Not a per-triangle diff edit");
   return e as DiffEdit;
@@ -68,8 +75,8 @@ export class TrianglePaintField implements PaintField {
   readonly preserved: Map<number, string>;
   private readonly paintable: Uint8Array;
   private mergeScratch: Uint32Array | null = null;
-  /** Parsed trees and their leaf states, by triangle; an entry is valid while its string matches `preserved`. */
-  private readonly parsed = new Map<number, { tree: string; root: TreeNode; states: Set<number> }>();
+  /** Parsed trees, their leaf states and leaf counts, by triangle; an entry is valid while its string matches `preserved`. */
+  private readonly parsed = new Map<number, ParsedTree>();
 
   /** Shares `mesh` and `paintable` (1 = ModelPart triangle) with the caller; takes ownership of `init`. */
   constructor(mesh: EditableMesh, paintable: Uint8Array, init?: { states?: Uint16Array; preserved?: Map<number, string> }) {
@@ -95,19 +102,22 @@ export class TrianglePaintField implements PaintField {
     return this.preserved;
   }
 
+  parsedTreeOf(tri: number): TreeNode | undefined {
+    return this.parsedTree(tri)?.root;
+  }
+
   leafStates(tri: number): ReadonlySet<number> | undefined {
     return this.parsedTree(tri)?.states;
   }
 
   /** The triangle's tree, parsed (cached while its string is unchanged); undefined without one. */
-  private parsedTree(tri: number): { tree: string; root: TreeNode; states: Set<number> } | undefined {
+  private parsedTree(tri: number): ParsedTree | undefined {
     const tree = this.preserved.get(tri);
     if (tree === undefined) { this.parsed.delete(tri); return undefined; }
     let p = this.parsed.get(tri);
     if (!p || p.tree !== tree) {
-      const root = parseTree(tree), states = new Set<number>();
-      addLeafStates(root, states, true);
-      this.parsed.set(tri, (p = { tree, root, states }));
+      const root = parseTree(tree), { states, leaves } = treeSummary(root);
+      this.parsed.set(tri, (p = { tree, root, states, leaves }));
     }
     return p;
   }
@@ -166,8 +176,9 @@ export class TrianglePaintField implements PaintField {
       if (split) {
         const c: [Vec3, Vec3, Vec3] = [corner(t, 0), corner(t, 1), corner(t, 2)];
         if (!(inside(c[0]) && inside(c[1]) && inside(c[2]))) { // crossed by the sphere's surface: grow the tree
-          const before = tree !== undefined ? this.parsedTree(t)!.root : { state: states[t] };
-          const after = paintSphereTree(before, c, center, radius, state, split.limit);
+          const p = tree !== undefined ? this.parsedTree(t)! : undefined;
+          const before = p ? p.root : { state: states[t] };
+          const after = paintSphereTree(before, c, center, radius, state, split.limit, p ? p.leaves : 1);
           if (after !== before) grown.push({ t, root: after });
           continue;
         }
@@ -215,10 +226,9 @@ export class TrianglePaintField implements PaintField {
         const tree = emitTree(root);
         preserved.set(t, tree);
         pa.set(t, tree);
-        states[t] = treeDominant(root);
-        const leafStates = new Set<number>();
-        addLeafStates(root, leafStates, true);
-        this.parsed.set(t, { tree, root, states: leafStates });
+        const summary = treeSummary(root);
+        states[t] = summary.dominant;
+        this.parsed.set(t, { tree, root, states: summary.states, leaves: summary.leaves });
       }
       after[i] = states[t];
     });

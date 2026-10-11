@@ -107,6 +107,13 @@ export function leafIndexAt(root: TreeNode, p: Bary): number {
 }
 
 /** One leaf if every child is a leaf of the same state, else the split with these children. */
+/** The squared length of the cross product of a triangle's two sides at corner 0: (2 x area)^2, so (2 x area)^2 / longest^2 is its height squared. */
+function sqCross([a, b, c]: readonly [Vec3, Vec3, Vec3]): number {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = c[0] - a[0], wy = c[1] - a[1], wz = c[2] - a[2];
+  const x = uy * wz - uz * wy, y = uz * wx - ux * wz, z = ux * wy - uy * wx;
+  return x * x + y * y + z * z;
+}
+
 function joined(n: TreeSplit, children: TreeNode[]): TreeNode {
   const first = children[0];
   if (isLeaf(first) && children.every((c) => isLeaf(c) && c.state === first.state)) return { state: first.state };
@@ -116,16 +123,18 @@ function joined(n: TreeSplit, children: TreeNode[]): TreeNode {
 /**
  * Paints a sphere into a triangle's tree (the brush with "Split triangles", spec Q12.1). `corners`
  * are the triangle's corners and `center`/`radius` the sphere, all in one space. Leaves inside the
- * sphere take `state`. Leaves its surface crosses are cut on all three sides until their longest
- * side is at most `limit` (or the tree reaches MAX_TREE_LEAVES), and then take `state` if their
- * centroid is inside. Equal siblings merge. Returns `root` itself when nothing changed.
+ * sphere take `state`. Leaves its surface crosses are cut until their longest side is at most
+ * `limit` (or the tree reaches MAX_TREE_LEAVES), and then take `state` if their centroid is inside:
+ * on all three sides, or only on the longest side once a leaf is thinner than `limit` (a sliver). Equal siblings merge. Returns `root` itself when nothing changed.
+ * `leafCount` is `root`'s leaf count, if the caller knows it (saves a pass over the tree).
  */
 export function paintSphereTree(
   root: TreeNode, corners: readonly [Vec3, Vec3, Vec3], center: Vec3, radius: number, state: number, limit: number,
+  leafCount?: number,
 ): TreeNode {
   const r2 = radius * radius, limit2 = limit * limit;
   const [cx, cy, cz] = center;
-  let leaves = countLeaves(root);
+  let leaves = leafCount ?? countLeaves(root);
   const at = (b: Bary, k: number) => corners[0][k] * b[0] + corners[1][k] * b[1] + corners[2][k] * b[2];
   const point = (b: Bary): Vec3 => [at(b, 0), at(b, 1), at(b, 2)];
   const d2 = (p: Vec3, q: Vec3) => (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2;
@@ -141,13 +150,22 @@ export function paintSphereTree(
     let node: TreeSplit;
     if (isLeaf(n)) {
       if (n.state === state) return n;
-      const longest = Math.max(d2(p[0], p[1]), d2(p[1], p[2]), d2(p[2], p[0]));
+      const e01 = d2(p[0], p[1]), e12 = d2(p[1], p[2]), e20 = d2(p[2], p[0]);
+      const longest = Math.max(e01, e12, e20);
       if (longest <= limit2 || leaves + 3 > MAX_TREE_LEAVES) {
         const g: Vec3 = [(p[0][0] + p[1][0] + p[2][0]) / 3, (p[0][1] + p[1][1] + p[2][1]) / 3, (p[0][2] + p[1][2] + p[2][2]) / 3];
         return d2(g, center) <= r2 ? { state } : n;
       }
-      node = { splitSides: 3, special: 0, children: [n, n, n, n].map(() => ({ state: n.state })) };
-      leaves += 3;
+      if (sqCross(p) / longest < limit2) {
+        // Already thinner than the limit (a sliver): cut only the longest side. Cutting all three
+        // would halve the width too, multiplying pieces for no visible detail.
+        const special = longest === e12 ? 0 : longest === e20 ? 1 : 2; // the corner opposite the longest side
+        node = { splitSides: 1, special, children: [{ state: n.state }, { state: n.state }] };
+        leaves += 1;
+      } else {
+        node = { splitSides: 3, special: 0, children: [n, n, n, n].map(() => ({ state: n.state })) };
+        leaves += 3;
+      }
     } else node = n;
     const corners4 = childCorners(v, node.splitSides, node.special);
     let changed = false;
@@ -157,7 +175,7 @@ export function paintSphereTree(
       return r;
     });
     if (!changed) {
-      if (node !== n) leaves -= 3; // a cut that painted nothing is dropped
+      if (node !== n) leaves -= node.children.length - 1; // a cut that painted nothing is dropped
       return n;
     }
     const out = joined(node, children);
@@ -185,14 +203,20 @@ export function paintTreeLeaves(root: TreeNode, chosen: ReadonlySet<number>, sta
 
 /** The most frequent leaf state (0 counts), ties to the higher state: the rule `remapTree` and `load3MF` use. */
 export function treeDominant(root: TreeNode): number {
+  return treeSummary(root).dominant;
+}
+
+/** In one pass: the dominant state (`treeDominant`), every leaf state including 0, and the leaf count. */
+export function treeSummary(root: TreeNode): { dominant: number; states: Set<number>; leaves: number } {
   const counts = new Map<number, number>();
+  let leaves = 0;
   (function walk(n: TreeNode) {
-    if (isLeaf(n)) counts.set(n.state, (counts.get(n.state) ?? 0) + 1);
+    if (isLeaf(n)) { counts.set(n.state, (counts.get(n.state) ?? 0) + 1); leaves++; }
     else n.children.forEach(walk);
   })(root);
   let dominant = 0, best = 0;
   for (const [s, c] of counts) if (c > best || (c === best && s > dominant)) { best = c; dominant = s; }
-  return dominant;
+  return { dominant, states: new Set(counts.keys()), leaves };
 }
 
 /** Adds every leaf state to `into`: those > 0, and 0 too with `withUnpainted`. */
