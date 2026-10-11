@@ -192,6 +192,11 @@ describe("patchVertexShader", () => {
     expect(patched).toContain("vPpTree = uint( tree + 0.5 );");
     expect(patched).toContain("gl_VertexID");
   });
+
+  it("samples the barycentrics at the centroid (MSAA must not extrapolate them off thin slivers)", () => {
+    expect(patchVertexShader(ShaderLib.lambert.vertexShader)).toContain("centroid varying vec3 vPpBary;");
+    expect(patchFragmentShader(ShaderLib.lambert.fragmentShader)).toContain("centroid varying vec3 vPpBary;");
+  });
 });
 
 describe("patchFragmentShader", () => {

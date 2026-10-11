@@ -40,11 +40,16 @@ export function patchVertexShader(vertexShader: string, highlight = true): strin
   );
 }
 
-/** What the vertex stage hands the fragment walk: the tree root + 1 (0 = none), the base state and the point's barycentrics. */
+/**
+ * What the vertex stage hands the fragment walk: the tree root + 1 (0 = none), the base state and the point's barycentrics.
+ * The barycentrics are `centroid`: with MSAA a plain varying is evaluated at the pixel center even when only a
+ * sample is covered, and on a sliver thinner than a pixel (a cut cap's fan) that point lies far outside the
+ * triangle, so the walk picked scattered wrong pieces and painted areas showed static.
+ */
 const TREE_VARYINGS_GLSL = /* glsl */ `
 flat varying highp uint vPpTree;
 flat varying highp uint vPpBase;
-varying vec3 vPpBary;
+centroid varying vec3 vPpBary;
 `;
 
 /**
